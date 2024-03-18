@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <StartupObject>SimpleTwoBallsPlainCollisionSimulator.SimpleTwoBallsPlainCollisionSimulator</StartupObject>
+    <UseWindowsForms>False</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Printer\Printer.csproj" />
+    <ProjectReference Include="..\SFML.Net-2.5.1\src\SFML.Audio\SFML.Audio.csproj" />
+    <ProjectReference Include="..\SFML.Net-2.5.1\src\SFML.Graphics\SFML.Graphics.csproj" />
+    <ProjectReference Include="..\SFML.Net-2.5.1\src\SFML.Net\SFML.Net.csproj" />
+    <ProjectReference Include="..\SFML.Net-2.5.1\src\SFML.System\SFML.System.csproj" />
+    <ProjectReference Include="..\SFML.Net-2.5.1\src\SFML.Window\SFML.Window.csproj" />
+  </ItemGroup>
+
+</Project>
