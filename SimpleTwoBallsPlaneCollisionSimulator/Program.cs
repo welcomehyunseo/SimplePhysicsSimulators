@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Reflection.Metadata;
 using System.Collections.Generic;
+using SFML.Graphics;
 
 namespace SimpleTwoBallsPlainCollisionSimulator
 {
@@ -150,22 +151,29 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
     abstract class Object
     {
-        private Vector2 _p;  // m
-        public Vector2 Position { set { _p = value; } get { return _p; } }
+        protected Vector2 _p;  // m
+        public Vector2 Position { get { return _p; } }
 
         public Object(Vector2 p)
         {
             _p = p;
         }
 
+        public abstract void F1(float dt, Queue<Object> objs);
+
+        public abstract void F2(MovableObject obj);
+
+        public abstract bool F3(
+            float minX, float minY, float maxX, float maxY);
+
     }
 
     abstract class MovableObject : Object
     {
-        private Vector2 _v;  // m
-        public Vector2 Velocity { set { _v = value; } get { return _v;} }
+        protected Vector2 _v;  // m
+        public Vector2 Velocity { get { return _v;} }
 
-        private readonly float _m;  // kg
+        protected readonly float _m;  // kg
         public float Mass { get { return _m; } }
 
         public MovableObject(Vector2 p, Vector2 v, float m) : base(p)
@@ -176,13 +184,28 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             _m = m;
         }
 
+        public override void F1(float dt, Queue<Object> objs) 
+        {
+            var forceAcc = new Vector2(0, 0);
+            forceAcc += new Gravity(Mass).Value;
 
+            _v.X += (forceAcc.X / _m) * dt;
+            _v.Y += (forceAcc.Y / _m) * dt;
 
+            _p.X += _v.X * dt; 
+            _p.Y += _v.Y * dt;
+
+            foreach (Object obj in objs)
+                obj.F2(this);
+
+        }
     }
 
     abstract class ImmovableObject : Object
     {
         public ImmovableObject(Vector2 p) : base(p) { }
+
+        public override void F1(float dt, Queue<Object> otherObjs) { }
     }
 
     class Ball : MovableObject
@@ -197,6 +220,124 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             _r = r;
         }
 
+        private static (Vector2, Vector2) ToPostCollisionVelocities(
+            Vector2 p1, Vector2 v1, float m1,
+            Vector2 p2, Vector2 v2, float m2)
+        {
+            float e = 0.9f;
+
+            float dx = p2.X - p1.X;
+            float dy = p2.Y - p1.Y;
+
+            float c1, n1, c2, n2;
+            Vector2 v1Prime, v2Prime;
+            if (dx == 0)  // 90 degrees
+            {
+                c1 = v1.Y;
+                n1 = v1.X;
+                c2 = v2.Y;
+                n2 = v2.X;
+
+                var c1Prime =
+                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
+                    ((((1 + e) * m2) / (m1 + m2)) * c2);
+                var c2Prime =
+                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
+                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
+
+                v1Prime = new(n1, c1Prime);
+                v2Prime = new(n2, c2Prime);
+            }
+            else if (dy == 0)  // 0 degrees
+            {
+                c1 = v1.X;
+                n1 = v1.Y;
+                c2 = v2.X;
+                n2 = v2.Y;
+
+                var c1Prime =
+                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
+                    ((((1 + e) * m2) / (m1 + m2)) * c2);
+                var c2Prime =
+                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
+                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
+
+                v1Prime = new(c1Prime, n1);
+                v2Prime = new(c2Prime, n2);
+            }
+            else
+            {
+                float angle = (float)Math.Atan(dy / dx);
+
+                c1 =
+                    (v1.X * (float)Math.Cos(angle)) +
+                    (v1.Y * (float)Math.Sin(angle));
+                n1 =
+                    (v1.X * -(float)Math.Sin(angle)) +
+                    (v1.Y * (float)Math.Cos(angle));
+                c2 =
+                    (v2.X * (float)Math.Cos(angle)) +
+                    (v2.Y * (float)Math.Sin(angle));
+                n2 =
+                    (v2.X * -(float)Math.Sin(angle)) +
+                    (v2.Y * (float)Math.Cos(angle));
+
+                var c1Prime =
+                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
+                    ((((1 + e) * m2) / (m1 + m2)) * c2);
+                var c2Prime =
+                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
+                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
+
+                v1Prime = new(
+                    (c1Prime * (float)Math.Cos(angle)) +
+                    (n1 * -(float)Math.Sin(angle)),
+                    (c1Prime * (float)Math.Sin(angle)) +
+                    (n1 * (float)Math.Cos(angle)));
+                v2Prime = new(
+                    (c2Prime * (float)Math.Cos(angle)) +
+                    (n2 * -(float)Math.Sin(angle)),
+                    (c2Prime * (float)Math.Sin(angle)) +
+                    (n2 * (float)Math.Cos(angle)));
+            }
+
+            return (v1Prime, v2Prime);
+        }
+
+        public override void F2(MovableObject _obj)
+        {
+            if (_obj is not Ball)
+                throw new NotImplementedException();
+
+            Ball b = (Ball)_obj;
+
+            Vector2 d = _p - b._p;
+            float distanceSquared = Vector2.Dot(d, d);
+            if (distanceSquared <= (float)Math.Pow(_r + b._r, 2))
+            {
+                var distance = (float)Math.Sqrt(distanceSquared);
+                var halfDistance = distance / 2;
+                Vector2 u = d / distance;
+                Vector2 e1 = halfDistance * u;
+                Vector2 e2 = -halfDistance * u;
+
+                _p += e1;
+                b._p += e2;
+
+                (_v, b._v) = ToPostCollisionVelocities(
+                    _p, _v, _m, b._p, b._v, b._m);
+            }
+
+        }
+
+        public override bool F3(
+            float minX, float minY, float maxX, float maxY)
+        {
+            return (_p.X + _r < minX ||
+                    _p.Y + _r < minY ||
+                    _p.X - _r > maxX ||
+                    _p.Y - _r > maxY);
+        }
     }
 
     //class Wall : ImmovableObject
@@ -206,12 +347,12 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
     class Game : Window
     {
-        private Queue<Ball> _balls = new();
+        private Queue<Object> _objs = new();
 
         public Game(params Ball[] balls) : base(800, 600, 0.01f)
         {
             foreach (Ball b in balls)
-                _balls.Enqueue(b);
+                _objs.Enqueue(b);
         }
 
         private static (Vector2, Vector2) ToPostCollisionVelocities(
@@ -300,8 +441,17 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         protected override void Init()
         {
-            foreach (Ball b in _balls)
+
+            // TODO: Refactoring
+            foreach (Object _obj in _objs)
+            {
+                // TODO
+                if (_obj is not Ball) 
+                    throw new NotImplementedException();
+
+                Ball b = (Ball)_obj;
                 DrawCircle(b.Position, b.Radius);
+            }
         }
 
         protected override void Update(float dt)
@@ -309,62 +459,22 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             /*Console.WriteLine(dt);*/
             Debug.Assert(dt > 0);
 
-            int length = _balls.Count();
+            int length = _objs.Count();
             for (int i = 0; i < length; ++i)
             {
-                Ball bi = _balls.Dequeue();
+                Object obj = _objs.Dequeue();
+                obj.F1(dt, _objs);
 
-                var forceAcc = new Vector2(0, 0);
-                forceAcc += new Gravity(bi.Mass).Value;
-                forceAcc += new AerodynamicDrag(bi.Velocity, bi.Radius).Value;
+                if (obj.F3(MinX, MinY, MaxX, MaxY))
+                    continue;
 
-                Vector2 aNew = new(
-                    forceAcc.X / bi.Mass, 
-                    forceAcc.Y / bi.Mass);
-                Vector2 vNew = new(
-                    bi.Velocity.X + (aNew.X * dt), 
-                    bi.Velocity.Y + (aNew.Y * dt));
-                Vector2 pNew = new(
-                    bi.Position.X + (vNew.X * dt),
-                    bi.Position.Y + (vNew.Y * dt));
+                // TODO
+                if (obj is Ball)
+                    DrawCircle(obj.Position, ((Ball)obj).Radius);
+                else
+                    throw new NotImplementedException();
 
-
-                foreach (Ball bj in _balls)
-                {
-                    Vector2 d = bj.Position - pNew;
-                    float distanceSquared = Vector2.Dot(d, d);
-                    if (distanceSquared <= (float)Math.Pow(bi.Radius + bj.Radius, 2))
-                    {
-                        var distance = (float)Math.Sqrt(distanceSquared);
-                        var halfDistance = distance / 2;
-                        Vector2 u = d / distance;
-                        Vector2 e1 = halfDistance * u;
-                        Vector2 e2 = -halfDistance * u;
-
-                        bj.Position += e1;
-                        pNew += e2;
-
-                        (vNew, bj.Velocity) = ToPostCollisionVelocities(
-                            pNew, vNew, bi.Mass, 
-                            bj.Position, bj.Velocity, bj.Mass);
-
-                        break;
-                    }
-
-                }
-
-                if (pNew.X + bi.Radius < MinX ||
-                    pNew.Y + bi.Radius < MinY ||
-                    pNew.X - bi.Radius > MaxX ||
-                    pNew.Y - bi.Radius > MaxY)
-                    break;
-
-                bi.Velocity = vNew;
-                bi.Position = pNew;
-
-                DrawCircle(bi.Position, bi.Radius);
-
-                _balls.Enqueue(bi);
+                _objs.Enqueue(obj);
             }
         }
 
