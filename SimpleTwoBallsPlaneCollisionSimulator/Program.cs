@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using System.Numerics;
 using System.Reflection.Metadata;
+using System.Collections.Generic;
 
 namespace SimpleTwoBallsPlainCollisionSimulator
 {
@@ -21,6 +22,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         private readonly float _scale;
 
+        public readonly float MinX, MinY;
         public readonly float MaxX, MaxY;
 
         public Window(uint width, uint height, float scale = 1)
@@ -37,6 +39,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             _Height = height;
 
             _scale = scale;
+            MinX = 0; MinY = 0;
             MaxX = _scale * _Width;
             MaxY = _scale * _Height;
 
@@ -58,6 +61,8 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         }
 
+        protected abstract void Init();
+
         protected abstract void Update(float dt);
 
         public void Run()
@@ -69,6 +74,8 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             _run = true;
 
             SFML.System.Clock clock = new();
+
+            Init();
 
             // Start the game loop
             while (_RenderWindow.IsOpen)
@@ -129,12 +136,11 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         private static float DragForceConstant(Vector2 vel, float radius)
         {
             var squared = vel.LengthSquared();
-            var p = 1.0f;  // fluid density, but it is not exactly.
+            var p = 0.05f;  // fluid density, but it is not exactly.
             var a = (float)Math.PI * radius * radius;  // characteristic body area, pi * r^2, for sphere.
             var c = 1.2f;  // drag coefficient for Circle in Two-Dimentional.
 
-            /*return (-0.5f * p * squared * a * c) / (float)Math.Sqrt(squared);*/
-            return -0.5f * p * (float)Math.Sqrt(squared) * a * c;
+            return (-0.5f * p * squared * a * c) / (float)Math.Sqrt(squared);
         }
 
         public AerodynamicDrag(Vector2 vel, float radius) 
@@ -142,56 +148,160 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         { }
     }
 
-    class Ball
+    abstract class Object
     {
-        private Vector2 _p, _v;  // m
-        public Vector2 Pos { get { return _p; } }
-        public Vector2 Vel { set { _v = value; } get { return _v; } }
+        private Vector2 _p;  // m
+        public Vector2 Position { set { _p = value; } get { return _p; } }
 
-        private readonly float _m;  // kg
-        public float Mass { get { return _m; } }
-
-        private readonly float _r;  // m
-        public float Radius { get { return _r; } }
-
-        public Ball(Vector2 pos, Vector2 vel, float mass, float radius)
+        public Object(Vector2 p)
         {
-            Debug.Assert(radius > 0);
-
-            _p = pos;
-            _v = vel;
-            _m = mass;
-            _r = radius;
-        }
-
-        public void Apply(float dt, params Force[] forces)
-        {
-            var totalForce = new Vector2(0, 0);
-
-            foreach (Force f in forces)
-                totalForce += f.Value;
-
-            var acc = new Vector2((totalForce.X / Mass), (totalForce.Y / Mass));
-
-            _v.X += acc.X * dt;
-            _v.Y += acc.Y * dt;
-            _p.X += _v.X * dt;
-            _p.Y += _v.Y * dt;
-
-            /*Console.WriteLine($"Position: {_p}");*/
+            _p = p;
         }
 
     }
 
+    abstract class MovableObject : Object
+    {
+        private Vector2 _v;  // m
+        public Vector2 Velocity { set { _v = value; } get { return _v;} }
+
+        private readonly float _m;  // kg
+        public float Mass { get { return _m; } }
+
+        public MovableObject(Vector2 p, Vector2 v, float m) : base(p)
+        {
+            Debug.Assert(m > 0);
+
+            _v = v; 
+            _m = m;
+        }
+
+
+
+    }
+
+    abstract class ImmovableObject : Object
+    {
+        public ImmovableObject(Vector2 p) : base(p) { }
+    }
+
+    class Ball : MovableObject
+    {
+        private readonly float _r;  // m
+        public float Radius { get { return _r; } }
+
+        public Ball(Vector2 p, Vector2 v, float m, float r) : base(p, v, m)
+        {
+            Debug.Assert(r > 0);
+
+            _r = r;
+        }
+
+    }
+
+    //class Wall : ImmovableObject
+    //{
+    //    public Wall(Vector2 p) : base(p) { }
+    //}
+
     class Game : Window
     {
-        private Ball _b1, _b2;
+        private Queue<Ball> _balls = new();
 
-        public Game() : base(800, 600, 0.1f)
+        public Game(params Ball[] balls) : base(800, 600, 0.01f)
         {
-            float a = 100.0f;
-            _b1 = new(new(0, MaxY / 2), new(a, 0), 100.0f, 2.0f);
-            _b2 = new(new(MaxX, MaxY / 2), new(-a, 0), 100.0f, 2.0f);
+            foreach (Ball b in balls)
+                _balls.Enqueue(b);
+        }
+
+        private static (Vector2, Vector2) ToPostCollisionVelocities(
+            Vector2 p1, Vector2 v1, float m1, 
+            Vector2 p2, Vector2 v2, float m2)
+        {
+            float e = 0.9f;
+
+            float dx = p2.X - p1.X;
+            float dy = p2.Y - p1.Y;
+
+            float c1, n1, c2, n2;
+            Vector2 v1Prime, v2Prime;
+            if (dx == 0)  // 90 degrees
+            {
+                c1 = v1.Y;
+                n1 = v1.X;
+                c2 = v2.Y;
+                n2 = v2.X;
+
+                var c1Prime =
+                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
+                    ((((1 + e) * m2) / (m1 + m2)) * c2);
+                var c2Prime =
+                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
+                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
+
+                v1Prime = new(n1, c1Prime);
+                v2Prime = new(n2, c2Prime);
+            }
+            else if (dy == 0)  // 0 degrees
+            {
+                c1 = v1.X;
+                n1 = v1.Y;
+                c2 = v2.X;
+                n2 = v2.Y;
+
+                var c1Prime =
+                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
+                    ((((1 + e) * m2) / (m1 + m2)) * c2);
+                var c2Prime =
+                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
+                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
+
+                v1Prime = new(c1Prime, n1);
+                v2Prime = new(c2Prime, n2);
+            }
+            else
+            {
+                float angle = (float)Math.Atan(dy / dx);
+
+                c1 =
+                    (v1.X * (float)Math.Cos(angle)) +
+                    (v1.Y * (float)Math.Sin(angle));
+                n1 =
+                    (v1.X * -(float)Math.Sin(angle)) +
+                    (v1.Y * (float)Math.Cos(angle));
+                c2 =
+                    (v2.X * (float)Math.Cos(angle)) +
+                    (v2.Y * (float)Math.Sin(angle));
+                n2 =
+                    (v2.X * -(float)Math.Sin(angle)) +
+                    (v2.Y * (float)Math.Cos(angle));
+
+                var c1Prime =
+                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
+                    ((((1 + e) * m2) / (m1 + m2)) * c2);
+                var c2Prime =
+                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
+                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
+
+                v1Prime = new(
+                    (c1Prime * (float)Math.Cos(angle)) +
+                    (n1 * -(float)Math.Sin(angle)),
+                    (c1Prime * (float)Math.Sin(angle)) +
+                    (n1 * (float)Math.Cos(angle)));
+                v2Prime = new(
+                    (c2Prime * (float)Math.Cos(angle)) +
+                    (n2 * -(float)Math.Sin(angle)),
+                    (c2Prime * (float)Math.Sin(angle)) +
+                    (n2 * (float)Math.Cos(angle)));
+            }
+
+            return (v1Prime, v2Prime);
+        }
+
+        protected override void Init()
+        {
+            foreach (Ball b in _balls)
+                DrawCircle(b.Position, b.Radius);
         }
 
         protected override void Update(float dt)
@@ -199,111 +309,65 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             /*Console.WriteLine(dt);*/
             Debug.Assert(dt > 0);
 
-            // check collision
-            /*
-             * 충돌 감지 > 두 오브젝트를 겹치기 전으로 조정 > 두 오브젝트의 충돌 후의 속도를 계산 (옵션)
-             * 아래의 코드에는 겹치기 전으로 조정하는 기능은 포함되어 있지 않음.
-             */
-            float dx = (_b1.Pos.X - _b2.Pos.X);
-            float dy = (_b1.Pos.Y - _b2.Pos.Y);
-            float dSquared = (dx * dx) + (dy * dy);
-            float r = _b1.Radius + _b2.Radius;
-            float rSquared = r * r;
-            if (dSquared <= rSquared)
+            int length = _balls.Count();
+            for (int i = 0; i < length; ++i)
             {
-                /*Console.WriteLine("Collision!");*/
+                Ball bi = _balls.Dequeue();
 
-                float e = 0.9f;
+                var forceAcc = new Vector2(0, 0);
+                forceAcc += new Gravity(bi.Mass).Value;
+                forceAcc += new AerodynamicDrag(bi.Velocity, bi.Radius).Value;
 
-                Vector2 v1 = _b1.Vel, v2 = _b2.Vel;
-                float m1 = _b1.Mass, m2 = _b2.Mass;
+                Vector2 aNew = new(
+                    forceAcc.X / bi.Mass, 
+                    forceAcc.Y / bi.Mass);
+                Vector2 vNew = new(
+                    bi.Velocity.X + (aNew.X * dt), 
+                    bi.Velocity.Y + (aNew.Y * dt));
+                Vector2 pNew = new(
+                    bi.Position.X + (vNew.X * dt),
+                    bi.Position.Y + (vNew.Y * dt));
 
-                float angle;
-                float p1, n1, p2, n2;
-                Vector2 v1Prime, v2Prime;
-                if (dx == 0)  // 90 degrees
+
+                foreach (Ball bj in _balls)
                 {
-                    p1 = v1.Y;
-                    n1 = v1.X;
-                    p2 = v2.Y;
-                    n2 = v2.X;
+                    Vector2 d = bj.Position - pNew;
+                    float distanceSquared = Vector2.Dot(d, d);
+                    if (distanceSquared <= (float)Math.Pow(bi.Radius + bj.Radius, 2))
+                    {
+                        var distance = (float)Math.Sqrt(distanceSquared);
+                        var halfDistance = distance / 2;
+                        Vector2 u = d / distance;
+                        Vector2 e1 = halfDistance * u;
+                        Vector2 e2 = -halfDistance * u;
 
-                    var p1Prime =
-                        (((m1 - (e * m2)) / (m1 + m2)) * p1) +
-                        ((((1 + e) * m2) / (m1 + m2)) * p2);
-                    var p2Prime =
-                        ((((1 + e) * m1) / (m1 + m2)) * p1) +
-                        (((m2 - (e * m1)) / (m1 + m2)) * p2);
+                        bj.Position += e1;
+                        pNew += e2;
 
-                    v1Prime = new(n1, p1Prime);
-                    v2Prime = new(n2, p2Prime);
-                }
-                else if (dy == 0)  // 0 degrees
-                {
-                    p1 = v1.X;
-                    n1 = v1.Y;
-                    p2 = v2.X;
-                    n2 = v2.Y;
+                        (vNew, bj.Velocity) = ToPostCollisionVelocities(
+                            pNew, vNew, bi.Mass, 
+                            bj.Position, bj.Velocity, bj.Mass);
 
-                    var p1Prime =
-                        (((m1 - (e * m2)) / (m1 + m2)) * p1) +
-                        ((((1 + e) * m2) / (m1 + m2)) * p2);
-                    var p2Prime =
-                        ((((1 + e) * m1) / (m1 + m2)) * p1) +
-                        (((m2 - (e * m1)) / (m1 + m2)) * p2);
+                        break;
+                    }
 
-                    v1Prime = new(p1Prime, n1);
-                    v2Prime = new(p2Prime, n2);
-                }
-                else
-                {
-                    angle = (float)Math.Atan(dy / dx);
-                    p1 =
-                        (v1.X * (float)Math.Cos(angle)) +
-                        (v1.Y * (float)Math.Sin(angle));
-                    n1 =
-                        (v1.X * -(float)Math.Sin(angle)) +
-                        (v1.Y * (float)Math.Cos(angle));
-                    p2 =
-                        (v2.X * (float)Math.Cos(angle)) +
-                        (v2.Y * (float)Math.Sin(angle));
-                    n2 =
-                        (v2.X * -(float)Math.Sin(angle)) +
-                        (v2.Y * (float)Math.Cos(angle));
-
-                    var p1Prime =
-                        (((m1 - (e * m2)) / (m1 + m2)) * p1) +
-                        ((((1 + e) * m2) / (m1 + m2)) * p2);
-                    var p2Prime =
-                        ((((1 + e) * m1) / (m1 + m2)) * p1) +
-                        (((m2 - (e * m1)) / (m1 + m2)) * p2);
-
-                    v1Prime = new(
-                        (p1Prime * (float)Math.Cos(angle)) +
-                        (n1 * -(float)Math.Sin(angle)),
-                        (p1Prime * (float)Math.Sin(angle)) +
-                        (n1 * (float)Math.Cos(angle)));
-                    v2Prime = new(
-                        (p2Prime * (float)Math.Cos(angle)) +
-                        (n2 * -(float)Math.Sin(angle)),
-                        (p2Prime * (float)Math.Sin(angle)) +
-                        (n2 * (float)Math.Cos(angle)));
                 }
 
-                _b1.Vel = v1Prime;
-                _b2.Vel = v2Prime;
+                if (pNew.X + bi.Radius < MinX ||
+                    pNew.Y + bi.Radius < MinY ||
+                    pNew.X - bi.Radius > MaxX ||
+                    pNew.Y - bi.Radius > MaxY)
+                    break;
+
+                bi.Velocity = vNew;
+                bi.Position = pNew;
+
+                DrawCircle(bi.Position, bi.Radius);
+
+                _balls.Enqueue(bi);
             }
-
-            _b1.Apply(dt, 
-                new Gravity(_b1.Mass), 
-                new AerodynamicDrag(_b1.Vel, _b1.Radius));
-            DrawCircle(_b1.Pos, _b1.Radius);
-
-            _b2.Apply(dt, 
-                new Gravity(_b2.Mass), 
-                new AerodynamicDrag(_b2.Vel, _b2.Radius));
-            DrawCircle(_b2.Pos, _b2.Radius);
         }
+
     }
 
     class SimpleTwoBallsPlainCollisionSimulator
@@ -564,7 +628,9 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 new(-3.0f, -1.0f), new(1.0f, 2.0f), 15.0f, 4,
                 new(4.0f, -1.0f), new(-1.0f, -3.0f), 10.0f, 3);*/
 
-            var game = new Game();
+            var game = new Game(
+                new Ball(new(0.0f, 5.0f), new(7.0f, 0.0f), 1.0f, 0.2f),
+                new Ball(new(8.0f, 5.0f), new(-7.0f, 0.0f), 1.5f, 0.3f));
             game.Run();
         }
     }
