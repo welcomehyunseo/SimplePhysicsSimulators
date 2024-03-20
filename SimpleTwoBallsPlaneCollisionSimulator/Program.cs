@@ -34,7 +34,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                     "SimpleTwoBallsLinearCollisionSimulator");
 
             _RenderWindow.Closed += OnClosed;
-            _RenderWindow.SetFramerateLimit(60);
+            /*_RenderWindow.SetFramerateLimit(60);*/
 
             _Width = width;
             _Height = height;
@@ -215,11 +215,12 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             _p = p;
         }
 
-        public abstract void F1(float dt, Queue<Object> objs);
+        public abstract void F1(float dt);
 
         public abstract bool F2(
             float minX, float minY, float maxX, float maxY);
 
+        public abstract void F3(Queue<Object> objs);
     }
 
     abstract class MovableObject : Object
@@ -238,7 +239,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             _m = m;
         }
 
-        public override void F1(float dt, Queue<Object> objs) 
+        public override void F1(float dt) 
         {
             Debug.Assert(dt > 0);
 
@@ -250,12 +251,12 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
             _p.X += _v.X * dt;
             _p.Y += _v.Y * dt;
+        }
 
+        public override void F3(Queue<Object> objs)
+        {
             foreach (Object obj in objs)
-                CollisionResolution.ObjectToObject(
-                    this, obj);
-
-
+                CollisionResolution.ObjectToObject(this, obj);
         }
 
         public override bool F2(
@@ -267,13 +268,15 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         static class CollisionResolution
         {
             // the coefficient of restitution
-            private static readonly float E = 0.5f;  
+            private static readonly float E = 0.6f;  
 
             private static 
                 (Vector2, Vector2) PostCollisionVelocities1(
                     Vector2 p1, Vector2 v1, float m1,
                     Vector2 p2, Vector2 v2, float m2)
             {
+                Debug.Assert(0 <= E && E <= 1);
+
                 float dx = p2.X - p1.X;
                 float dy = p2.Y - p1.Y;
 
@@ -357,6 +360,8 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 Vector2 PostCollisionVelocities2(
                     Vector2 p, Vector2 v, Vector2 nPlain)
             {
+                Debug.Assert(0 <= E && E <= 1);
+
                 float dx = nPlain.X; float dy = nPlain.Y;
 
                 float c, n, cPrime;
@@ -487,7 +492,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
     {
         public ImmovableObject(Vector2 p) : base(p) { }
         
-        public override void F1(float dt, Queue<Object> objs)
+        public override void F1(float dt)
         {
             Debug.Assert(dt > 0);
         }
@@ -495,7 +500,12 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         public override bool F2(
             float minX, float minY, float maxX, float maxY)
         {
-            throw new NotImplementedException();
+            return false;
+        }
+
+        public override void F3(Queue<Object> objs)
+        {
+            
         }
     }
 
@@ -549,11 +559,6 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             
         }
 
-        public override bool F2(
-            float minX, float minY, float maxX, float maxY)
-        {
-            return false;
-        }
     }
 
     class Game : Window
@@ -570,7 +575,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         {
 
             // TODO: Refactoring
-            foreach (Object _obj in _objs)
+            /*foreach (Object _obj in _objs)
             {
                 // TODO
                 if (_obj is Ball b)
@@ -580,7 +585,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 else
                     throw new NotImplementedException();
 
-            }
+            }*/
         }
 
         protected override void Update(float dt)
@@ -592,10 +597,6 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             for (int i = 0; i < length; ++i)
             {
                 Object obj = _objs.Dequeue();
-                obj.F1(dt, _objs);
-
-                if (obj.F2(MinX, MinY, MaxX, MaxY))
-                    continue;
 
                 // TODO
                 if (obj is Ball b)
@@ -605,8 +606,24 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 else
                     throw new NotImplementedException();
 
+                obj.F1(dt);
+
+                if (obj.F2(MinX, MinY, MaxX, MaxY))
+                    continue;
+
                 _objs.Enqueue(obj);
             }
+
+            length = _objs.Count();
+            for (int i = 0; i < length; ++i)
+            {
+                Object obj = _objs.Dequeue();
+
+                obj.F3(_objs);
+
+                _objs.Enqueue(obj);
+            }
+
         }
 
     }
@@ -873,10 +890,11 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 new Ball(new(3.5f, 4.0f), new(1.0f, 0.0f), 1.0f, 0.2f),
                 new Ball(new(6.5f, 4.0f), new(-1.0f, 0.0f), 1.5f, 0.3f),
                 new Ball(new(5.0f, 6.0f), new(0.0f, -2.0f), 1.5f, 0.5f),
+                new Ball(new(5.0f, 2.0f), new(0.0f, -2.0f), 1.5f, 0.4f),
                 new Wall(new(4.0f, 0.0f), 8.0f, Vector2.Normalize(new(0.0f, 1.0f))),
                 new Wall(new(0.0f, 3.0f), 6.0f, Vector2.Normalize(new(1.0f, 0.0f))),
                 new Wall(new(8.0f, 3.0f), 6.0f, Vector2.Normalize(new(-1.0f, 0.0f))),
-                new Wall(new(4.0f, 1.0f), 3.0f, Vector2.Normalize(new(1.0f, 1.0f))));
+                new Wall(new(1.0f, 1.0f), 3.0f, Vector2.Normalize(new(1.0f, 1.0f))));
             game.Run();
         }
     }
