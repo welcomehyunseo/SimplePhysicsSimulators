@@ -59,7 +59,59 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 Position = new SFML.System.Vector2f(scaledX, scaledY),
             };
             _RenderWindow.Draw(circle);
+        }
 
+        protected void DrawLineSegment(Vector2 p, Vector2 n, float h)
+        {
+            Debug.Assert(h > 0);
+
+            float scaledX = (p.X / _scale);
+            float scaledY = (float)_Height - (p.Y / _scale);
+            float scaledH = h / _scale;
+
+            SFML.Graphics.Vertex[] line = new SFML.Graphics.Vertex[2];
+
+            float dx = n.X; float dy = n.Y;
+            if (dx == 0)  // vertical
+            {
+                line[0] = new SFML.Graphics.Vertex(
+                    new SFML.System.Vector2f(scaledX - scaledH, scaledY));
+                line[1] = new SFML.Graphics.Vertex(
+                    new SFML.System.Vector2f(scaledX + scaledH, scaledY));
+            }
+            else if (dy == 0)  // horizontal
+            {
+                line[0] = new SFML.Graphics.Vertex(
+                    new SFML.System.Vector2f(scaledX, scaledY - scaledH));
+                line[1] = new SFML.Graphics.Vertex(
+                    new SFML.System.Vector2f(scaledX, scaledY + scaledH));
+            }
+            else
+            {
+                float tangent = -dy / dx;
+                float a1 = (float)Math.Atan(tangent);
+                float a2 = ((float)Math.PI / 2.0f) - a1;
+                float dxPrime = scaledH * (float)Math.Cos(a1);
+                float dyPrime = scaledH * (float)Math.Cos(a2);
+
+                if (tangent > 0)
+                {
+                    line[0] = new SFML.Graphics.Vertex(
+                    new SFML.System.Vector2f(scaledX - dxPrime, scaledY - dyPrime));
+                    line[1] = new SFML.Graphics.Vertex(
+                        new SFML.System.Vector2f(scaledX + dxPrime, scaledY + dyPrime));
+                }
+                else
+                {
+                    Debug.Assert(tangent < 0);
+                    line[0] = new SFML.Graphics.Vertex(
+                    new SFML.System.Vector2f(scaledX + dxPrime, scaledY - dyPrime));
+                    line[1] = new SFML.Graphics.Vertex(
+                        new SFML.System.Vector2f(scaledX - dxPrime, scaledY + dyPrime));
+                }
+            }
+
+            _RenderWindow.Draw(line, SFML.Graphics.PrimitiveType.Lines);
         }
 
         protected abstract void Init();
@@ -74,9 +126,11 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             Debug.Assert(_run == false);
             _run = true;
 
+            // TODO: 초반에 핑이 튀는 구간이 있음.
             SFML.System.Clock clock = new();
 
             Init();
+            _RenderWindow.Display();
 
             // Start the game loop
             while (_RenderWindow.IsOpen)
@@ -124,7 +178,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
     class Gravity : Force
     {
-        private static readonly Vector2 _G = new(0, -9.8f);
+        private static readonly Vector2 _G = new(0, -1.8f);
 
         public Gravity(float m) : base(m * _G) 
         {
@@ -138,7 +192,9 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         {
             var squared = vel.LengthSquared();
             var p = 0.05f;  // fluid density, but it is not exactly.
-            var a = (float)Math.PI * radius * radius;  // characteristic body area, pi * r^2, for sphere.
+
+            // characteristic body area, pi * r^2, for sphere.
+            var a = (float)Math.PI * radius * radius;  
             var c = 1.2f;  // drag coefficient for Circle in Two-Dimentional.
 
             return (-0.5f * p * squared * a * c) / (float)Math.Sqrt(squared);
@@ -161,9 +217,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         public abstract void F1(float dt, Queue<Object> objs);
 
-        public abstract void F2(MovableObject obj);
-
-        public abstract bool F3(
+        public abstract bool F2(
             float minX, float minY, float maxX, float maxY);
 
     }
@@ -186,26 +240,263 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         public override void F1(float dt, Queue<Object> objs) 
         {
+            Debug.Assert(dt > 0);
+
             var forceAcc = new Vector2(0, 0);
-            forceAcc += new Gravity(Mass).Value;
+            forceAcc += new Gravity(_m).Value;
 
             _v.X += (forceAcc.X / _m) * dt;
             _v.Y += (forceAcc.Y / _m) * dt;
 
-            _p.X += _v.X * dt; 
+            _p.X += _v.X * dt;
             _p.Y += _v.Y * dt;
 
             foreach (Object obj in objs)
-                obj.F2(this);
+                CollisionResolution.ObjectToObject(
+                    this, obj);
 
+
+        }
+
+        public override bool F2(
+            float minX, float minY, float maxX, float maxY)
+        {
+            throw new NotImplementedException();
+        }
+
+        static class CollisionResolution
+        {
+            // the coefficient of restitution
+            private static readonly float E = 0.5f;  
+
+            private static 
+                (Vector2, Vector2) PostCollisionVelocities1(
+                    Vector2 p1, Vector2 v1, float m1,
+                    Vector2 p2, Vector2 v2, float m2)
+            {
+                float dx = p2.X - p1.X;
+                float dy = p2.Y - p1.Y;
+
+                float c1, n1, c2, n2;
+                float c1Prime, c2Prime;
+                Vector2 v1Prime, v2Prime;
+                if (dx == 0)  // 90 degrees
+                {
+                    c1 = v1.Y;
+                    n1 = v1.X;
+                    c2 = v2.Y;
+                    n2 = v2.X;
+
+                    c1Prime =
+                        (((m1 - (E * m2)) / (m1 + m2)) * c1) +
+                        ((((1 + E) * m2) / (m1 + m2)) * c2);
+                    c2Prime =
+                        ((((1 + E) * m1) / (m1 + m2)) * c1) +
+                        (((m2 - (E * m1)) / (m1 + m2)) * c2);
+
+                    v1Prime = new(n1, c1Prime);
+                    v2Prime = new(n2, c2Prime);
+                }
+                else if (dy == 0)  // 0 degrees
+                {
+                    c1 = v1.X;
+                    n1 = v1.Y;
+                    c2 = v2.X;
+                    n2 = v2.Y;
+
+                    c1Prime =
+                        (((m1 - (E * m2)) / (m1 + m2)) * c1) +
+                        ((((1 + E) * m2) / (m1 + m2)) * c2);
+                    c2Prime =
+                        ((((1 + E) * m1) / (m1 + m2)) * c1) +
+                        (((m2 - (E * m1)) / (m1 + m2)) * c2);
+
+                    v1Prime = new(c1Prime, n1);
+                    v2Prime = new(c2Prime, n2);
+                }
+                else
+                {
+                    float angle = (float)Math.Atan(dy / dx);
+
+                    c1 =
+                        (v1.X * (float)Math.Cos(angle)) +
+                        (v1.Y * (float)Math.Sin(angle));
+                    n1 =
+                        (v1.X * -(float)Math.Sin(angle)) +
+                        (v1.Y * (float)Math.Cos(angle));
+                    c2 =
+                        (v2.X * (float)Math.Cos(angle)) +
+                        (v2.Y * (float)Math.Sin(angle));
+                    n2 =
+                        (v2.X * -(float)Math.Sin(angle)) +
+                        (v2.Y * (float)Math.Cos(angle));
+
+                    c1Prime =
+                        (((m1 - (E * m2)) / (m1 + m2)) * c1) +
+                        ((((1 + E) * m2) / (m1 + m2)) * c2);
+                    c2Prime =
+                        ((((1 + E) * m1) / (m1 + m2)) * c1) +
+                        (((m2 - (E * m1)) / (m1 + m2)) * c2);
+
+                    v1Prime = new(
+                        (c1Prime * (float)Math.Cos(angle)) +
+                        (n1 * -(float)Math.Sin(angle)),
+                        (c1Prime * (float)Math.Sin(angle)) +
+                        (n1 * (float)Math.Cos(angle)));
+                    v2Prime = new(
+                        (c2Prime * (float)Math.Cos(angle)) +
+                        (n2 * -(float)Math.Sin(angle)),
+                        (c2Prime * (float)Math.Sin(angle)) +
+                        (n2 * (float)Math.Cos(angle)));
+                }
+
+                return (v1Prime, v2Prime);
+            }
+
+            private static 
+                Vector2 PostCollisionVelocities2(
+                    Vector2 p, Vector2 v, Vector2 nPlain)
+            {
+                float dx = nPlain.X; float dy = nPlain.Y;
+
+                float c, n, cPrime;
+                Vector2 vPrime;
+                if(dx == 0)  // vertical
+                {
+                    c = v.Y;
+                    n = v.X;
+
+                    cPrime = -E * c;
+
+                    vPrime = new(n, cPrime);
+                }
+                else if (dy == 0)  // horizontal
+                {
+                    c = v.X;
+                    n = v.Y;
+
+                    cPrime = -E * c;
+
+                    vPrime = new(cPrime, n);
+                }
+                else
+                {
+                    float angle = (float)Math.Atan(dy / dx);
+
+                    c =
+                        (v.X * (float)Math.Cos(angle)) +
+                        (v.Y * (float)Math.Sin(angle));
+                    n =
+                        (v.X * -(float)Math.Sin(angle)) +
+                        (v.Y * (float)Math.Cos(angle));
+
+                    cPrime = -E * c;
+                    vPrime = new(
+                        (cPrime * (float)Math.Cos(angle)) +
+                        (n * -(float)Math.Sin(angle)),
+                        (cPrime * (float)Math.Sin(angle)) +
+                        (n * (float)Math.Cos(angle)));
+                }
+
+                return vPrime;
+            }
+
+            private static bool BallToBall(Ball b1, Ball b2)
+            {
+                Vector2 a = b1.Position - b2.Position;
+                float s1 = Vector2.Dot(a, a);
+                float d2 = b1.Radius + b2.Radius;
+                float s2 = (float)Math.Pow(d2, 2);
+                Debug.Assert(s1 > 0);
+                Debug.Assert(d2 > 0);
+                Debug.Assert(s2 > 0);
+                if (s1 > s2) 
+                    return false;
+
+                float d1 = (float)Math.Sqrt(s1);
+                Debug.Assert(d1 > 0);
+
+                float g1 = d2 - d1;
+
+                Debug.Assert(g1 >= 0);
+
+                if (g1 > 0)
+                {
+                    var g2 = g1 / 2;
+                    Debug.Assert(g2 > 0);
+
+                    Vector2 u = a / (float)Math.Sqrt(s1);
+                    Vector2 e1 = g2 * u;
+                    Vector2 e2 = -g2 * u;
+
+                    b1._p += e1;
+                    b2._p += e2;
+                }
+
+                (b1._v, b2._v) = PostCollisionVelocities1(
+                    b1._p, b1._v, b1._m, b2._p, b2._v, b2._m);
+
+                return true;
+            }
+
+            private static bool BallToWall(Ball b1, Wall w2)
+            {
+
+                float d = Vector2.Dot(w2.Normal, b1.Position) - w2.Distance;
+                if (d <= 0 || d > b1.Radius) return false;
+
+                Debug.Assert(b1.Radius > 0);
+                float c;
+                {
+                    var x = (b1.Radius * b1.Radius) - (d * d);
+                    c = (float)Math.Sqrt(x);
+                }
+                /*Debug.Assert(c > 0);*/
+
+                var a = b1.Position - (d * w2.Normal);
+                if (Vector2.Distance(a, w2.Position) > w2.HalfLength + c)
+                    return false;
+
+                float g = b1.Radius - d;
+                /*Debug.Assert(g > 0);*/
+                Vector2 e = w2.Normal * g;
+
+                b1._p += e;
+
+                b1._v = PostCollisionVelocities2(b1._p, b1._v, w2.Normal);
+
+                return true;
+            }
+
+            public static bool ObjectToObject(Object o1, Object o2)
+            {
+                if (o1 is Ball b1)
+                    if (o2 is Ball b2)
+                        return BallToBall(b1, b2);
+                    else if (o2 is Wall w2)
+                        return BallToWall(b1, w2);
+                    else
+                        throw new NotImplementedException();
+                else
+                    throw new NotImplementedException();
+            }
         }
     }
 
     abstract class ImmovableObject : Object
     {
         public ImmovableObject(Vector2 p) : base(p) { }
+        
+        public override void F1(float dt, Queue<Object> objs)
+        {
+            Debug.Assert(dt > 0);
+        }
 
-        public override void F1(float dt, Queue<Object> otherObjs) { }
+        public override bool F2(
+            float minX, float minY, float maxX, float maxY)
+        {
+            throw new NotImplementedException();
+        }
     }
 
     class Ball : MovableObject
@@ -213,124 +504,17 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         private readonly float _r;  // m
         public float Radius { get { return _r; } }
 
-        public Ball(Vector2 p, Vector2 v, float m, float r) : base(p, v, m)
+        public Ball(
+            Vector2 position, Vector2 velocity, float mass, 
+            float radius) 
+            : base(position, velocity, mass)
         {
-            Debug.Assert(r > 0);
+            Debug.Assert(radius > 0);
 
-            _r = r;
+            _r = radius;
         }
 
-        private static (Vector2, Vector2) ToPostCollisionVelocities(
-            Vector2 p1, Vector2 v1, float m1,
-            Vector2 p2, Vector2 v2, float m2)
-        {
-            float e = 0.9f;
-
-            float dx = p2.X - p1.X;
-            float dy = p2.Y - p1.Y;
-
-            float c1, n1, c2, n2;
-            Vector2 v1Prime, v2Prime;
-            if (dx == 0)  // 90 degrees
-            {
-                c1 = v1.Y;
-                n1 = v1.X;
-                c2 = v2.Y;
-                n2 = v2.X;
-
-                var c1Prime =
-                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
-                    ((((1 + e) * m2) / (m1 + m2)) * c2);
-                var c2Prime =
-                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
-                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
-
-                v1Prime = new(n1, c1Prime);
-                v2Prime = new(n2, c2Prime);
-            }
-            else if (dy == 0)  // 0 degrees
-            {
-                c1 = v1.X;
-                n1 = v1.Y;
-                c2 = v2.X;
-                n2 = v2.Y;
-
-                var c1Prime =
-                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
-                    ((((1 + e) * m2) / (m1 + m2)) * c2);
-                var c2Prime =
-                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
-                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
-
-                v1Prime = new(c1Prime, n1);
-                v2Prime = new(c2Prime, n2);
-            }
-            else
-            {
-                float angle = (float)Math.Atan(dy / dx);
-
-                c1 =
-                    (v1.X * (float)Math.Cos(angle)) +
-                    (v1.Y * (float)Math.Sin(angle));
-                n1 =
-                    (v1.X * -(float)Math.Sin(angle)) +
-                    (v1.Y * (float)Math.Cos(angle));
-                c2 =
-                    (v2.X * (float)Math.Cos(angle)) +
-                    (v2.Y * (float)Math.Sin(angle));
-                n2 =
-                    (v2.X * -(float)Math.Sin(angle)) +
-                    (v2.Y * (float)Math.Cos(angle));
-
-                var c1Prime =
-                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
-                    ((((1 + e) * m2) / (m1 + m2)) * c2);
-                var c2Prime =
-                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
-                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
-
-                v1Prime = new(
-                    (c1Prime * (float)Math.Cos(angle)) +
-                    (n1 * -(float)Math.Sin(angle)),
-                    (c1Prime * (float)Math.Sin(angle)) +
-                    (n1 * (float)Math.Cos(angle)));
-                v2Prime = new(
-                    (c2Prime * (float)Math.Cos(angle)) +
-                    (n2 * -(float)Math.Sin(angle)),
-                    (c2Prime * (float)Math.Sin(angle)) +
-                    (n2 * (float)Math.Cos(angle)));
-            }
-
-            return (v1Prime, v2Prime);
-        }
-
-        public override void F2(MovableObject _obj)
-        {
-            if (_obj is not Ball)
-                throw new NotImplementedException();
-
-            Ball b = (Ball)_obj;
-
-            Vector2 d = _p - b._p;
-            float distanceSquared = Vector2.Dot(d, d);
-            if (distanceSquared <= (float)Math.Pow(_r + b._r, 2))
-            {
-                var distance = (float)Math.Sqrt(distanceSquared);
-                var halfDistance = distance / 2;
-                Vector2 u = d / distance;
-                Vector2 e1 = halfDistance * u;
-                Vector2 e2 = -halfDistance * u;
-
-                _p += e1;
-                b._p += e2;
-
-                (_v, b._v) = ToPostCollisionVelocities(
-                    _p, _v, _m, b._p, b._v, b._m);
-            }
-
-        }
-
-        public override bool F3(
+        public override bool F2(
             float minX, float minY, float maxX, float maxY)
         {
             return (_p.X + _r < minX ||
@@ -340,105 +524,48 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         }
     }
 
-    //class Wall : ImmovableObject
-    //{
-    //    public Wall(Vector2 p) : base(p) { }
-    //}
+    class Wall : ImmovableObject
+    {
+        private readonly float _h;  // m
+        public float Length {  get { return _h * 2.0f; } }
+        public float HalfLength { get { return _h; } }
+
+        private readonly Vector2 _n;
+        public Vector2 Normal { get { return _n; } }
+
+        private readonly float _d;  // m
+        public float Distance { get { return _d; } }
+
+        public Wall(
+            Vector2 position, 
+            float length, Vector2 n) 
+            : base(position) 
+        {
+            Debug.Assert(length > 0);
+
+            _h = length / 2.0f;
+            _n = n;
+            _d = Vector2.Dot(_p, _n);
+            
+        }
+
+        public override bool F2(
+            float minX, float minY, float maxX, float maxY)
+        {
+            return false;
+        }
+    }
 
     class Game : Window
     {
         private Queue<Object> _objs = new();
 
-        public Game(params Ball[] balls) : base(800, 600, 0.01f)
+        public Game(params Object[] objs) : base(800, 600, 0.01f)
         {
-            foreach (Ball b in balls)
-                _objs.Enqueue(b);
+            foreach (Object o in objs)
+                _objs.Enqueue(o);
         }
-
-        private static (Vector2, Vector2) ToPostCollisionVelocities(
-            Vector2 p1, Vector2 v1, float m1, 
-            Vector2 p2, Vector2 v2, float m2)
-        {
-            float e = 0.9f;
-
-            float dx = p2.X - p1.X;
-            float dy = p2.Y - p1.Y;
-
-            float c1, n1, c2, n2;
-            Vector2 v1Prime, v2Prime;
-            if (dx == 0)  // 90 degrees
-            {
-                c1 = v1.Y;
-                n1 = v1.X;
-                c2 = v2.Y;
-                n2 = v2.X;
-
-                var c1Prime =
-                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
-                    ((((1 + e) * m2) / (m1 + m2)) * c2);
-                var c2Prime =
-                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
-                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
-
-                v1Prime = new(n1, c1Prime);
-                v2Prime = new(n2, c2Prime);
-            }
-            else if (dy == 0)  // 0 degrees
-            {
-                c1 = v1.X;
-                n1 = v1.Y;
-                c2 = v2.X;
-                n2 = v2.Y;
-
-                var c1Prime =
-                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
-                    ((((1 + e) * m2) / (m1 + m2)) * c2);
-                var c2Prime =
-                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
-                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
-
-                v1Prime = new(c1Prime, n1);
-                v2Prime = new(c2Prime, n2);
-            }
-            else
-            {
-                float angle = (float)Math.Atan(dy / dx);
-
-                c1 =
-                    (v1.X * (float)Math.Cos(angle)) +
-                    (v1.Y * (float)Math.Sin(angle));
-                n1 =
-                    (v1.X * -(float)Math.Sin(angle)) +
-                    (v1.Y * (float)Math.Cos(angle));
-                c2 =
-                    (v2.X * (float)Math.Cos(angle)) +
-                    (v2.Y * (float)Math.Sin(angle));
-                n2 =
-                    (v2.X * -(float)Math.Sin(angle)) +
-                    (v2.Y * (float)Math.Cos(angle));
-
-                var c1Prime =
-                    (((m1 - (e * m2)) / (m1 + m2)) * c1) +
-                    ((((1 + e) * m2) / (m1 + m2)) * c2);
-                var c2Prime =
-                    ((((1 + e) * m1) / (m1 + m2)) * c1) +
-                    (((m2 - (e * m1)) / (m1 + m2)) * c2);
-
-                v1Prime = new(
-                    (c1Prime * (float)Math.Cos(angle)) +
-                    (n1 * -(float)Math.Sin(angle)),
-                    (c1Prime * (float)Math.Sin(angle)) +
-                    (n1 * (float)Math.Cos(angle)));
-                v2Prime = new(
-                    (c2Prime * (float)Math.Cos(angle)) +
-                    (n2 * -(float)Math.Sin(angle)),
-                    (c2Prime * (float)Math.Sin(angle)) +
-                    (n2 * (float)Math.Cos(angle)));
-            }
-
-            return (v1Prime, v2Prime);
-        }
-
+        
         protected override void Init()
         {
 
@@ -446,11 +573,13 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             foreach (Object _obj in _objs)
             {
                 // TODO
-                if (_obj is not Ball) 
+                if (_obj is Ball b)
+                    DrawCircle(b.Position, b.Radius);
+                else if (_obj is Wall w)
+                    DrawLineSegment(w.Position, w.Normal, w.HalfLength);
+                else
                     throw new NotImplementedException();
 
-                Ball b = (Ball)_obj;
-                DrawCircle(b.Position, b.Radius);
             }
         }
 
@@ -465,12 +594,14 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 Object obj = _objs.Dequeue();
                 obj.F1(dt, _objs);
 
-                if (obj.F3(MinX, MinY, MaxX, MaxY))
+                if (obj.F2(MinX, MinY, MaxX, MaxY))
                     continue;
 
                 // TODO
-                if (obj is Ball)
-                    DrawCircle(obj.Position, ((Ball)obj).Radius);
+                if (obj is Ball b)
+                    DrawCircle(obj.Position, b.Radius);
+                else if (obj is Wall w)
+                    DrawLineSegment(w.Position, w.Normal, w.HalfLength);
                 else
                     throw new NotImplementedException();
 
@@ -739,8 +870,13 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 new(4.0f, -1.0f), new(-1.0f, -3.0f), 10.0f, 3);*/
 
             var game = new Game(
-                new Ball(new(0.0f, 5.0f), new(7.0f, 0.0f), 1.0f, 0.2f),
-                new Ball(new(8.0f, 5.0f), new(-7.0f, 0.0f), 1.5f, 0.3f));
+                new Ball(new(3.5f, 4.0f), new(1.0f, 0.0f), 1.0f, 0.2f),
+                new Ball(new(6.5f, 4.0f), new(-1.0f, 0.0f), 1.5f, 0.3f),
+                new Ball(new(5.0f, 6.0f), new(0.0f, -2.0f), 1.5f, 0.5f),
+                new Wall(new(4.0f, 0.0f), 8.0f, Vector2.Normalize(new(0.0f, 1.0f))),
+                new Wall(new(0.0f, 3.0f), 6.0f, Vector2.Normalize(new(1.0f, 0.0f))),
+                new Wall(new(8.0f, 3.0f), 6.0f, Vector2.Normalize(new(-1.0f, 0.0f))),
+                new Wall(new(4.0f, 1.0f), 3.0f, Vector2.Normalize(new(1.0f, 1.0f))));
             game.Run();
         }
     }
