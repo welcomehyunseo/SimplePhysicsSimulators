@@ -35,7 +35,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                     "SimpleTwoBallsLinearCollisionSimulator");
 
             _RenderWindow.Closed += OnClosed;
-            /*_RenderWindow.SetFramerateLimit(60);*/
+            _RenderWindow.SetFramerateLimit(60);
 
             _Width = width;
             _Height = height;
@@ -47,7 +47,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         }
 
-        protected void DrawCircle(Vector2 pos, float radius)
+        public void DrawCircle(Vector2 pos, float radius)
         {
             float scaledRadius = radius / _scale;
 
@@ -62,7 +62,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             _RenderWindow.Draw(circle);
         }
 
-        protected void DrawLineSegment(Vector2 p, Vector2 n, float h)
+        public void DrawLineSegment(Vector2 p, Vector2 n, float h)
         {
             Debug.Assert(h > 0);
 
@@ -115,8 +115,6 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             _RenderWindow.Draw(line, SFML.Graphics.PrimitiveType.Lines);
         }
 
-        protected abstract void Init();
-
         protected abstract void Update(float dt);
 
         public void Run()
@@ -130,7 +128,6 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             // TODO: 초반에 핑이 튀는 구간이 있음.
             SFML.System.Clock clock = new();
 
-            Init();
             _RenderWindow.Display();
 
             // Start the game loop
@@ -206,9 +203,152 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         { }
     }
 
+    static class CollisionDetector
+    {
+        private static (bool, float, Vector2) BallToBall(Ball b1, Ball b2)
+        {
+            Debug.Assert(b1 != b2);
+
+            Vector2 a = b1.Position - b2.Position;
+            
+            float s1 = a.LengthSquared();
+            Debug.Assert(s1 > 0);
+
+            float d1 = (float)Math.Sqrt(s1);
+            Debug.Assert(d1 > 0);
+
+            Debug.Assert(b1.Radius > 0);
+            Debug.Assert(b2.Radius > 0);
+            float d2 = b1.Radius + b2.Radius;
+            Debug.Assert(d2 > 0);
+
+            // No collide.
+            if (d1 > d2)
+                return (false, 0, Vector2.Zero);
+
+            float dPrime = d2 - d1;
+            Debug.Assert(dPrime >= 0);
+
+            // Not overlapped, just touches at one point.
+            if (dPrime == 0)
+                return (true, 0, Vector2.Zero);
+
+            // Overlapped.
+            Vector2 u = a / d1;
+            return (true, dPrime, u);
+        }
+
+        private static (bool, float, Vector2) BallToWall(Ball b1, Wall w2)
+        {
+            float d = Vector2.Dot(w2.Normal, b1.Position) - w2.Distance;
+            // No collide.
+            if (d <= 0 || d > b1.Radius)
+                return (false, 0, Vector2.Zero);
+
+            Debug.Assert(b1.Radius > 0);
+            float r;
+            {
+                float x = (b1.Radius * b1.Radius) - (d * d);
+                if (x > 0)
+                    r = (float)Math.Sqrt(x);
+                else
+                    r = 0;
+            }
+            Debug.Assert(r >= 0);
+
+            var a = b1.Position - (d * w2.Normal);
+            float k = Vector2.Distance(a, w2.Position);
+            /*
+             * This is to check whether the projection point 
+             * of the center of the ball b1, with its radius, 
+             * is inside the line boundary.
+             * 
+             * k > w2.HalfLength + r
+             * No collide.
+             * 
+             * k == w2.HalfLength + r
+             * No collide, just touches at one point at the end 
+             * of the wall w2.
+             * It is reached imposible, 
+             * because we do already check the condition d <= 0.
+             * 
+             * k < w2.HalfLength + r
+             * Overlapped.
+             */
+            if (k > w2.HalfLength + r)
+                return (false, 0, Vector2.Zero);
+
+            // Not overlapped, just touches at one point.
+            // (r == 0) is equal to (b1.Radius - d == 0).
+            if (r == 0)
+            {
+                Debug.Assert(d == b1.Radius);
+                Debug.Assert(k <= w2.HalfLength);
+                return (true, 0, Vector2.Zero);
+            }
+
+            float dPrime;
+
+            if (k <= w2.HalfLength)
+            {
+                Debug.Assert(r > 0);
+                dPrime = b1.Radius - d;
+                return (true, dPrime, w2.Normal);
+            }
+
+            Debug.Assert(k > w2.HalfLength);
+            Debug.Assert(k < w2.HalfLength + r);
+
+            {
+                float x = k - w2.HalfLength;
+                Debug.Assert(x > 0);
+                Debug.Assert(b1.Radius > x);
+                float c = (float)Math.Sqrt(
+                    (b1.Radius * b1.Radius) - (x * x));
+                dPrime = c - d;
+            }
+            return (true, dPrime, w2.Normal);
+        }
+
+        /*
+         * bool f, float d, Vector2 u
+         * f: isCollide
+         * d: overlapDistance
+         * u: unitVector, must be directed from o2 to o1, a = o1 - o2, u = a / |a|.
+         */
+        public static (bool, float, Vector2) Handle(Object o1, Object o2)
+        {
+            if (o1 is Ball b1)
+                if (o2 is Ball b2)
+                    return BallToBall(b1, b2);
+                else if (o2 is Wall w2)
+                    return BallToWall(b1, w2);
+                else
+                    throw new NotImplementedException();
+            else if (o1 is Wall w1)
+                if (o2 is Ball b2)
+                    return BallToWall(b2, w1);
+                else if (o2 is Wall)
+                    return (false, 0, Vector2.Zero);
+                else
+                    throw new NotImplementedException();
+            else
+                throw new NotImplementedException();
+        }
+    }
+
     static class CollisionResolution
     {
-        // the coefficient of restitution
+        /* the coefficient of restitution, E.
+         * 
+         * If E = 1 and mass is same, 
+         * the pre- and post-collision
+         * relative velocities are equal, 
+         * meaning that the collision is elastic.
+         * If E = 0 and mass is same, 
+         * the objects are stuck together
+         * and the collision is completely inelastic.
+         */
         private static readonly float E = 0.6f;
 
         private static void PostCollisionVelocities1(
@@ -338,32 +478,17 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         }
 
-        private static void BallToBall(Ball b1, Ball b2)
+        private static void BallToBall(Ball b1, Ball b2, float d, Vector2 u)
         {
-            Vector2 a = b1.Position - b2.Position;
-            float s1 = Vector2.Dot(a, a);
-            float d2 = b1.Radius + b2.Radius;
-            float s2 = (float)Math.Pow(d2, 2);
-            Debug.Assert(s1 > 0);
-            Debug.Assert(d2 > 0);
-            Debug.Assert(s2 > 0);
-            if (s1 > s2)
-                return;
+            Debug.Assert(b1 != b2);
 
-            float d1 = (float)Math.Sqrt(s1);
-            Debug.Assert(d1 > 0);
-
-            float g1 = d2 - d1;
-            Debug.Assert(g1 >= 0);
-
-            if (g1 > 0)
+            if (d > 0)
             {
-                var g2 = g1 / 2;
-                Debug.Assert(g2 > 0);
+                var h = d / 2;
+                Debug.Assert(h > 0);
 
-                Vector2 u = a / (float)Math.Sqrt(s1);
-                Vector2 e1 = g2 * u;
-                Vector2 e2 = -g2 * u;
+                Vector2 e1 = h * u;
+                Vector2 e2 = -h * u;
 
                 b1.Position += e1;
                 b2.Position += e2;
@@ -373,29 +498,12 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         }
 
-        private static void BallToWall(Ball b1, Wall w2)
+        private static void BallToWall(Ball b1, Wall w2, float d, Vector2 u)
         {
-
-            float d = Vector2.Dot(w2.Normal, b1.Position) - w2.Distance;
-            if (d <= 0 || d > b1.Radius) 
-                return;
-
-            Debug.Assert(b1.Radius > 0);
-            float c;
+            if (d > 0)
             {
-                var x = (b1.Radius * b1.Radius) - (d * d);
-                c = (float)Math.Sqrt(x);
-            }
-            Debug.Assert(c >= 0);
-
-            var a = b1.Position - (d * w2.Normal);
-            if (Vector2.Distance(a, w2.Position) > w2.HalfLength + c)
-                return;
-
-            float g = b1.Radius - d;
-            if (g > 0)
-            {
-                Vector2 e = w2.Normal * g;
+                Debug.Assert(w2.Normal == u);
+                Vector2 e = w2.Normal * d;
                 b1.Position += e;
             }
 
@@ -404,17 +512,18 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             return;
         }
 
-        public static void ObjectToObject(Object o1, Object o2)
+        public static void Handle(
+            Object o1, Object o2, float d, Vector2 u)
         {
             if (o1 is Ball b1)
                 if (o2 is Ball b2)
                 {
-                    BallToBall(b1, b2);
+                    BallToBall(b1, b2, d, u);
                     return;
                 }
                 else if (o2 is Wall w2)
                 {
-                    BallToWall(b1, w2);
+                    BallToWall(b1, w2, d, u);
                     return;
                 }
                 else
@@ -422,7 +531,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             else if (o1 is Wall w1)
                 if (o2 is Ball b2)
                 {
-                    BallToWall(b2, w1);
+                    BallToWall(b2, w1, d, u);
                     return;
                 }
                 else if (o2 is Wall)
@@ -450,12 +559,8 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         public abstract bool F2(
             float minX, float minY, float maxX, float maxY);
-
-        public void F3(Queue<Object> objs)
-        {
-            foreach (Object obj in objs)
-                CollisionResolution.ObjectToObject(this, obj);
-        }
+        
+        public abstract void G1(Window window);
     }
 
     abstract class MovableObject : Object
@@ -533,6 +638,11 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                     _p.X - _r > maxX ||
                     _p.Y - _r > maxY);
         }
+
+        public override void G1(Window window)
+        {
+            window.DrawCircle(_p, _r);
+        }
     }
 
     class Wall : ImmovableObject
@@ -560,35 +670,25 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             
         }
 
+        public override void G1(Window window)
+        {
+            window.DrawLineSegment(_p, _n, _h);
+        }
     }
-
+    
     class Game : Window
     {
         private Queue<Object> _objs = new();
 
         public Game(params Object[] objs) : base(800, 600, 0.01f)
         {
+            // TODO:
+            // Check the objects were overlaped.
+            // If they were overlaped, adjust the positions.
             foreach (Object o in objs)
                 _objs.Enqueue(o);
         }
         
-        protected override void Init()
-        {
-
-            // TODO: Refactoring
-            /*foreach (Object _obj in _objs)
-            {
-                // TODO
-                if (_obj is Ball b)
-                    DrawCircle(b.Position, b.Radius);
-                else if (_obj is Wall w)
-                    DrawLineSegment(w.Position, w.Normal, w.HalfLength);
-                else
-                    throw new NotImplementedException();
-
-            }*/
-        }
-
         protected override void Update(float dt)
         {
             /*Console.WriteLine(dt);*/
@@ -599,15 +699,14 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             {
                 Object obj = _objs.Dequeue();
 
-                // TODO
-                if (obj is Ball b)
-                    DrawCircle(obj.Position, b.Radius);
-                else if (obj is Wall w)
-                    DrawLineSegment(w.Position, w.Normal, w.HalfLength);
-                else
-                    throw new NotImplementedException();
+                obj.G1(this);
 
                 obj.F1(dt);
+
+                // TODO:
+                // Write the code here to check a new added
+                // object is overlaped by another object.
+                // If they were overlaped, adjust the positions.
 
                 if (obj.F2(MinX, MinY, MaxX, MaxY))
                     continue;
@@ -615,20 +714,108 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 _objs.Enqueue(obj);
             }
 
-            Queue<Object> objs = new();
+            // TODO:
+            // Add the new object dynamically
+            // after checking the object was overlapped.
 
-            length = _objs.Count();
-            for (int i = 0; i < length; ++i)
+            Object[] objs = [.. _objs];
+            length = objs.Length;
+            uint[] indices = new uint[length];
+            float[] distances = new float[length];
+            Vector2[] vectors = new Vector2[length];
+            bool[] flags = new bool[length];
+            Array.Clear(flags, 0, length);
+
+            for (uint i = 0; i < length; ++i)
             {
-                Object obj = _objs.Dequeue();
+                Object obj1 = objs[i];
+                for (uint j = i + 1; j < length; ++j)
+                {
+                    Object obj2 = objs[j];
 
-                obj.F3(_objs);
+                    (bool collide, float d, Vector2 u) = CollisionDetector.Handle(obj1, obj2);
 
-                objs.Enqueue(obj);
+                    if (collide == false) continue;
+
+                    bool fi = flags[i], fj = flags[j];
+                    float di, dj;
+
+                    if (fi == true && fj == true)
+                    {
+                        di = distances[i];
+                        if (di >= d) continue;
+
+                        dj = distances[j];
+                        if (dj >= d) continue;
+
+                        uint iPrime = indices[i], jPrime = indices[j];
+                        flags[iPrime] = false; flags[jPrime] = false;
+
+                        Debug.Assert(flags[i] == true);
+                        Debug.Assert(flags[j] == true);
+                    }
+                    else if (fi == true)
+                    {
+                        Debug.Assert(fj == false);
+
+                        di = distances[i];
+                        if (di >= d) continue;
+
+                        uint iPrime = indices[i];
+                        flags[iPrime] = false;
+
+                        Debug.Assert(flags[i] == true);
+                        flags[j] = true;
+                    }
+                    else if (fj == true)
+                    {
+                        Debug.Assert(fi == false);
+
+                        dj = distances[j];
+                        if (dj >= d) continue;
+
+                        uint jPrime = indices[j];
+                        flags[jPrime] = false;
+
+                        flags[i] = true;
+                        Debug.Assert(flags[j] == true);
+                    }
+                    else
+                    {
+                        flags[i] = true; flags[j] = true;
+                    }
+
+                    indices[i] = j; indices[j] = i;
+                    distances[i] = distances[j] = d;
+                    vectors[i] = u;
+
+                    // It is not needed, because the vector u is already had at i.
+                    /*vectors[j] = u;*/
+
+                }
             }
 
-            Debug.Assert(_objs.Count() == 0);
-            _objs = objs;
+            /*foreach (float d in distances)
+                Console.Write($"{d}, ");
+            Console.WriteLine();*/
+
+            for (uint i = 0; i < length; ++i)
+            {
+                if (flags[i] == false) continue;
+
+                Object obj1 = objs[i];
+                uint j = indices[i];
+                Object obj2 = objs[j];
+
+                float d = distances[i];
+                Debug.Assert(distances[j] == d);
+                Vector2 u = vectors[i];
+                CollisionResolution.Handle(obj1, obj2, d, u);
+
+                /*flags[i] = false;*/  // It is not used forever.
+                flags[j] = false;
+            }
+
         }
 
     }
@@ -636,7 +823,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
     class SimpleTwoBallsPlainCollisionSimulator
     {
         /*
-         * Get Post-collision velocities, v1' and v2', in Linear.
+         * Get Post-collision veloticies, v1' and v2', in Linear.
          * 
          * This calculation is for two objects 
          * colliding without overlapping. That is, 
@@ -894,12 +1081,14 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             var game = new Game(
                 new Ball(new(3.5f, 4.0f), new(1.0f, 0.0f), 1.0f, 0.2f),
                 new Ball(new(6.5f, 4.0f), new(-1.0f, 0.0f), 1.5f, 0.3f),
-                new Ball(new(5.0f, 6.0f), new(0.0f, -2.0f), 1.5f, 0.5f),
-                new Ball(new(5.0f, 2.0f), new(0.0f, -2.0f), 1.5f, 0.4f),
+                new Ball(new(5.0f, 6.0f), new(-0.5f, -2.0f), 1.65f, 0.5f),
+                new Ball(new(5.0f, 2.0f), new(0.0f, -2.0f), 1.8f, 0.4f),
+                new Ball(new(5.0f, 5.0f), new(3.0f, 1.0f), 0.3f, 0.1f),
+                new Ball(new(2.0f, 5.1f), new(3.0f, 1.0f), 0.3f, 0.1f),
+                new Wall(new(1.0f, 1.0f), 3.0f, Vector2.Normalize(new(1.0f, 1.0f))),
                 new Wall(new(4.0f, 0.0f), 8.0f, Vector2.Normalize(new(0.0f, 1.0f))),
                 new Wall(new(0.0f, 3.0f), 6.0f, Vector2.Normalize(new(1.0f, 0.0f))),
-                new Wall(new(8.0f, 3.0f), 6.0f, Vector2.Normalize(new(-1.0f, 0.0f))),
-                new Wall(new(1.0f, 1.0f), 3.0f, Vector2.Normalize(new(1.0f, 1.0f))));
+                new Wall(new(8.0f, 3.0f), 6.0f, Vector2.Normalize(new(-1.0f, 0.0f))));
             game.Run();
         }
     }
