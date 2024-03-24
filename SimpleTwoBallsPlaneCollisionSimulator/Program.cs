@@ -7,6 +7,8 @@ using System.Reflection.Metadata;
 using System.Collections.Generic;
 using SFML.Graphics;
 using System.Runtime.Intrinsics.X86;
+using static SimpleTwoBallsPlainCollisionSimulator.Block;
+using System.Collections;
 
 namespace SimpleTwoBallsPlainCollisionSimulator
 {
@@ -35,7 +37,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                     "SimpleTwoBallsLinearCollisionSimulator");
 
             _RenderWindow.Closed += OnClosed;
-            _RenderWindow.SetFramerateLimit(60);
+            /*_RenderWindow.SetFramerateLimit(60);*/
 
             _Width = width;
             _Height = height;
@@ -47,19 +49,22 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         }
 
-        public void DrawCircle(Vector2 pos, float radius)
+        public void DrawCircle(Vector2 p, float r)
         {
-            float scaledRadius = radius / _scale;
+            float rScaled = r / _scale;
 
-            float scaledX = (pos.X / _scale) - scaledRadius;
-            float scaledY = (float)_Height - (pos.Y / _scale) - scaledRadius;
+            float xScaled = (p.X / _scale) - rScaled;
+            float yScaled = (float)_Height - (p.Y / _scale) - rScaled;
 
-            var circle = new SFML.Graphics.CircleShape(scaledRadius)
+            var shape = new SFML.Graphics.CircleShape(rScaled)
             {
-                FillColor = SFML.Graphics.Color.White,
-                Position = new SFML.System.Vector2f(scaledX, scaledY),
+                // TODO: use static variable BackgroundColor of this class.
+                FillColor = SFML.Graphics.Color.Black,
+                OutlineColor = SFML.Graphics.Color.White,
+                OutlineThickness = 1,
+                Position = new SFML.System.Vector2f(xScaled, yScaled),
             };
-            _RenderWindow.Draw(circle);
+            _RenderWindow.Draw(shape);
         }
 
         public void DrawLineSegment(Vector2 p, Vector2 n, float h)
@@ -113,6 +118,24 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             }
 
             _RenderWindow.Draw(line, SFML.Graphics.PrimitiveType.Lines);
+        }
+
+        public void DrawSquare(Vector2 p, float s)
+        {
+            float sScaled = s / _scale;
+
+            float xScaled = (p.X / _scale);
+            float yScaled = (float)_Height - (p.Y / _scale) - sScaled;
+
+            var shape = new SFML.Graphics.RectangleShape(new SFML.System.Vector2f(sScaled, sScaled))
+            {
+                // TODO: use static variable BackgroundColor of this class.
+                FillColor = SFML.Graphics.Color.Black,
+                OutlineColor = SFML.Graphics.Color.White,
+                OutlineThickness = 1,
+                Position = new SFML.System.Vector2f(xScaled, yScaled),
+            };
+            _RenderWindow.Draw(shape);
         }
 
         protected abstract void Update(float dt);
@@ -238,76 +261,72 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             return (true, dPrime, u);
         }
 
-        private static (bool, float, Vector2) BallToWall(Ball b1, Wall w2)
+        private static (bool, float, Vector2) BallToBlock(Ball b1, Block b2)
         {
-            float d = Vector2.Dot(w2.Normal, b1.Position) - w2.Distance;
-            // No collide.
-            if (d <= 0 || d > b1.Radius)
+            if (b2.IsAllClosed())
                 return (false, 0, Vector2.Zero);
 
-            Debug.Assert(b1.Radius > 0);
-            float r;
+            float d;
+            Block.Face face;
+
+            float y1, y2;
+
+            y1 = (b1.Position.X - b2.Position.X) + b2.Position.Y;
+            y2 = -(b1.Position.X - b2.Position.X) + (b2.Position.Y + Block.SideLength);
+            if (b1.Position.Y >= y1)
             {
-                float x = (b1.Radius * b1.Radius) - (d * d);
-                if (x > 0)
-                    r = (float)Math.Sqrt(x);
+                if (b1.Position.Y >= y2)
+                {
+                    y1 =
+                     b1.Position.Y;
+                    y2 = b2.Position.Y + Block.SideLength;
+                    Debug.Assert(y1 > y2);
+                    d = y1 - y2;
+                    face = Face.Top;
+                }
                 else
-                    r = 0;
+                {
+                    y1 = b2.Position.X;
+                    y2 = b1.Position.X;
+                    Debug.Assert(y1 > y2);
+                    d = y1 - y2;
+                    face = Face.Left;
+                }
             }
-            Debug.Assert(r >= 0);
+            else
+            {
+                if (b1.Position.Y >= y2)
+                {
+                    y1 = b1.Position.X;
+                    y2 = b2.Position.X + Block.SideLength;
+                    Debug.Assert(y1 > y2);
+                    d = y1 - y2;
+                    face = Face.Right;
+                }
+                else
+                {
+                    y1 = b2.Position.Y;
+                    y2 = b1.Position.Y;
+                    Debug.Assert(y1 > y2);
+                    d = y1 - y2;
+                    face = Face.Bottom;
+                }
+            }
 
-            var a = b1.Position - (d * w2.Normal);
-            float k = Vector2.Distance(a, w2.Position);
-            /*
-             * This is to check whether the projection point 
-             * of the center of the ball b1, with its radius, 
-             * is inside the line boundary.
-             * 
-             * k > w2.HalfLength + r
-             * No collide.
-             * 
-             * k == w2.HalfLength + r
-             * No collide, just touches at one point at the end 
-             * of the wall w2.
-             * It is reached imposible, 
-             * because we do already check the condition d <= 0.
-             * 
-             * k < w2.HalfLength + r
-             * Overlapped.
-             */
-            if (k > w2.HalfLength + r)
+            Debug.Assert(d > 0);
+
+            float dPrime = b1.Radius - d;
+
+            if (dPrime < 0)
                 return (false, 0, Vector2.Zero);
 
-            // Not overlapped, just touches at one point.
-            // (r == 0) is equal to (b1.Radius - d == 0).
-            if (r == 0)
-            {
-                Debug.Assert(d == b1.Radius);
-                Debug.Assert(k <= w2.HalfLength);
+            if (dPrime == 0)
                 return (true, 0, Vector2.Zero);
-            }
 
-            float dPrime;
+            /*Console.WriteLine($"b2.Position: {b2.Position}");
+            Console.WriteLine($"i: {i}");*/
 
-            if (k <= w2.HalfLength)
-            {
-                Debug.Assert(r > 0);
-                dPrime = b1.Radius - d;
-                return (true, dPrime, w2.Normal);
-            }
-
-            Debug.Assert(k > w2.HalfLength);
-            Debug.Assert(k < w2.HalfLength + r);
-
-            {
-                float x = k - w2.HalfLength;
-                Debug.Assert(x > 0);
-                Debug.Assert(b1.Radius > x);
-                float c = (float)Math.Sqrt(
-                    (b1.Radius * b1.Radius) - (x * x));
-                dPrime = c - d;
-            }
-            return (true, dPrime, w2.Normal);
+            return (true, dPrime, GetNormal(face));
         }
 
         /*
@@ -316,19 +335,19 @@ namespace SimpleTwoBallsPlainCollisionSimulator
          * d: overlapDistance
          * u: unitVector, must be directed from o2 to o1, a = o1 - o2, u = a / |a|.
          */
-        public static (bool, float, Vector2) Handle(Object o1, Object o2)
+        public static (bool, float, Vector2) IsCollided(Object o1, Object o2)
         {
-            if (o1 is Ball b1)
-                if (o2 is Ball b2)
-                    return BallToBall(b1, b2);
-                else if (o2 is Wall w2)
-                    return BallToWall(b1, w2);
+            if (o1 is Ball ball1)
+                if (o2 is Ball ball2)
+                    return BallToBall(ball1, ball2);
+                else if (o2 is Block block2)
+                    return BallToBlock(ball1, block2);
                 else
                     throw new NotImplementedException();
-            else if (o1 is Wall w1)
-                if (o2 is Ball b2)
-                    return BallToWall(b2, w1);
-                else if (o2 is Wall)
+            else if (o1 is Block block1)
+                if (o2 is Ball ball2)
+                    return BallToBlock(ball2, block1);
+                else if (o2 is Block)
                     return (false, 0, Vector2.Zero);
                 else
                     throw new NotImplementedException();
@@ -498,16 +517,16 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         }
 
-        private static void BallToWall(Ball b1, Wall w2, float d, Vector2 u)
+        // TODO: Remove a unused variable, b2.
+        private static void BallToBlock(Ball b1, Block b2, float d, Vector2 u)
         {
             if (d > 0)
             {
-                Debug.Assert(w2.Normal == u);
-                Vector2 e = w2.Normal * d;
+                Vector2 e = u * d;
                 b1.Position += e;
             }
 
-            PostCollisionVelocities2(b1, w2.Normal);
+            PostCollisionVelocities2(b1, u);
 
             return;
         }
@@ -515,29 +534,20 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         public static void Handle(
             Object o1, Object o2, float d, Vector2 u)
         {
-            if (o1 is Ball b1)
-                if (o2 is Ball b2)
-                {
-                    BallToBall(b1, b2, d, u);
-                    return;
-                }
-                else if (o2 is Wall w2)
-                {
-                    BallToWall(b1, w2, d, u);
-                    return;
-                }
+            // TODO: Check the vector u is an unit vector.
+
+            if (o1 is Ball ball1)
+                if (o2 is Ball ball2)
+                    BallToBall(ball1, ball2, d, u);
+                else if (o2 is Block block2)
+                    BallToBlock(ball1, block2, d, u);
                 else
                     throw new NotImplementedException();
-            else if (o1 is Wall w1)
-                if (o2 is Ball b2)
-                {
-                    BallToWall(b2, w1, d, u);
-                    return;
-                }
-                else if (o2 is Wall)
-                {
-                    return;
-                }
+            else if (o1 is Block block1)
+                if (o2 is Ball ball2)
+                    BallToBlock(ball2, block1, d, u);
+                else if (o2 is Block)
+                    Debug.Assert(true);
                 else
                     throw new NotImplementedException();
             else
@@ -645,34 +655,114 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         }
     }
 
-    class Wall : ImmovableObject
+    class Block : ImmovableObject
     {
-        private readonly float _h;  // m
-        public float Length {  get { return _h * 2.0f; } }
-        public float HalfLength { get { return _h; } }
-
-        private readonly Vector2 _n;
-        public Vector2 Normal { get { return _n; } }
-
-        private readonly float _d;  // m
-        public float Distance { get { return _d; } }
-
-        public Wall(
-            Vector2 position, 
-            float length, Vector2 n) 
-            : base(position) 
+        public enum Face
         {
-            Debug.Assert(length > 0);
+            Top = 0,
+            Left,
+            Bottom,
+            Right,
+        }
 
-            _h = length / 2.0f;
-            _n = n;
-            _d = Vector2.Dot(_p, _n);
-            
+        /*public enum OpenMethod
+        {
+            AllOpened = 0b_0000,
+
+            OnlyTopClosed = 0b_0001,
+            OnlyLeftClosed = 0b_0010,
+            OnlyBottomClosed = 0b_0100,
+            OnlyRightClosed = 0b_1000,
+
+            TopLeftClosed = 0b_0011,
+            LeftBottomClosed = 0b_0110,
+            BottomRightClosed = 0b_1100,
+            RightTopClosed = 0b_1001,
+
+            VerticalOpened = 0b_0101,
+            HorizontalOpened = 0b_1010,
+
+            OnlyTopOpened = 0b_1110,
+            OnlyLeftOpened = 0b_1101,
+            OnlyBottomOpened = 0b_1011,
+            OnlyRightOpened = 0b_0111,
+
+            AllClosed = 0b_1111,
+        }*/
+
+        private static readonly int _MinContactNum = 0;
+        private static readonly int _MaxContactNum = 4;
+
+        private static readonly Vector2[] _Normals = [ 
+            Vector2.Normalize(new(0.0f, 1.0f)),
+            Vector2.Normalize(new(-1.0f, 0.0f)),
+            Vector2.Normalize(new(0.0f, -1.0f)),
+            Vector2.Normalize(new(1.0f, 0.0f)),
+            ];
+        public static Vector2 GetNormal(Face face)
+        {
+            int i = (int)face;
+            return _Normals[i];
+        }
+
+        public static readonly float SideLength = 1.0f;  // m
+        public static readonly float Radius = SideLength / 2;
+
+        private int _contactCount = _MinContactNum;
+        /*public int ContactCount { get { return _contactCount; } }*/
+
+        /*private readonly uint[] _Bitmasks = [
+            0b_0001, 0b_0010, 0b_0100, 0b_1000,
+            ];
+        private uint _bitmask = 0b_0000;*/
+
+        // TODO: Get position parameter as integers.
+        public Block(int x, int y) : base(new(x, y)) 
+        {
+            Debug.Assert(_Normals.Length == _MaxContactNum);
         }
 
         public override void G1(Window window)
         {
-            window.DrawLineSegment(_p, _n, _h);
+            window.DrawSquare(_p, SideLength);
+        }
+
+        /*private uint _GetBitmask(Face face)
+        {
+            int i = (int)face;
+            return _Bitmasks[i];
+        }*/
+
+        public void Contact()
+        {
+            /*Debug.Assert((_bitmask & _GetBitmask(face)) == 0);
+            _bitmask |= _GetBitmask(face);*/
+
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+            _contactCount++;
+        }
+
+        public void Uncontact()
+        {
+            /*Debug.Assert((_bitmask & _GetBitmask(face)) != 0);
+            _bitmask ^= _GetBitmask(face);*/
+
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+            _contactCount--;
+        }
+
+        /*public OpenMethod WhichOpened()
+        {
+            return (OpenMethod)_bitmask;
+        }*/
+
+        public bool IsAllClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+            return _contactCount == _MaxContactNum;
         }
     }
     
@@ -733,7 +823,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 {
                     Object obj2 = objs[j];
 
-                    (bool collide, float d, Vector2 u) = CollisionDetector.Handle(obj1, obj2);
+                    (bool collide, float d, Vector2 u) = CollisionDetector.IsCollided(obj1, obj2);
 
                     if (collide == false) continue;
 
@@ -1041,7 +1131,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             Console.WriteLine($"\tv2': {v2Prime}");
         }
 
-        static void Main()
+        public static void Main()
         {
             Console.WriteLine("Hello, World!");
 
@@ -1080,15 +1170,19 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
             var game = new Game(
                 new Ball(new(3.5f, 4.0f), new(1.0f, 0.0f), 1.0f, 0.2f),
-                new Ball(new(6.5f, 4.0f), new(-1.0f, 0.0f), 1.5f, 0.3f),
-                new Ball(new(5.0f, 6.0f), new(-0.5f, -2.0f), 1.65f, 0.5f),
-                new Ball(new(5.0f, 2.0f), new(0.0f, -2.0f), 1.8f, 0.4f),
-                new Ball(new(5.0f, 5.0f), new(3.0f, 1.0f), 0.3f, 0.1f),
-                new Ball(new(2.0f, 5.1f), new(3.0f, 1.0f), 0.3f, 0.1f),
-                new Wall(new(1.0f, 1.0f), 3.0f, Vector2.Normalize(new(1.0f, 1.0f))),
-                new Wall(new(4.0f, 0.0f), 8.0f, Vector2.Normalize(new(0.0f, 1.0f))),
-                new Wall(new(0.0f, 3.0f), 6.0f, Vector2.Normalize(new(1.0f, 0.0f))),
-                new Wall(new(8.0f, 3.0f), 6.0f, Vector2.Normalize(new(-1.0f, 0.0f))));
+                /*new Ball(new(6.5f, 4.0f), new(-1.0f, 0.0f), 1.5f, 0.3f),
+                new Ball(new(5.0f, 4.3f), new(-0.5f, -2.0f), 1.65f, 0.5f),
+                new Ball(new(5.0f, 2.5f), new(0.0f, -2.0f), 1.8f, 0.4f),
+                new Ball(new(5.0f, 4.0f), new(3.0f, 1.0f), 0.3f, 0.1f),
+                new Ball(new(2.0f, 4.1f), new(3.0f, 1.0f), 0.3f, 0.1f),*/
+                new Block(0, 0),
+                new Block(1, 0),
+                new Block(2, 0),
+                new Block(3, 0),
+                new Block(4, 0),
+                new Block(5, 0),
+                new Block(6, 0),
+                new Block(7, 0));
             game.Run();
         }
     }
