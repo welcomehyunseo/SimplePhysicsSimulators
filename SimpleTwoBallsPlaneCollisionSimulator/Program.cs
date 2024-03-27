@@ -850,130 +850,140 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 _objQueue.Enqueue(obj);
             }
 
-            int objArrLength = objQueueCount;
-            Object[] objArr = [.. _objQueue];
-            Debug.Assert(objArrLength == objArr.Length);
-
-            /*for (int i = 0; i < objArrLength; ++i)
-            {
-                Object obj1 = objArr[i];
-                Debug.Assert(obj1 != null);
-
-                for (int j = i + 1; j < objArrLength; ++j)
+            /* --- Method 1 - Start --- */
+            /*{
+                int objArrLength = objQueueCount;
+                Object[] objArr = [.. _objQueue];
+                Debug.Assert(objArrLength == objArr.Length);
+                
+                for (int i = 0; i < objArrLength; ++i)
                 {
-                    Object obj2 = objArr[j];
-                    Debug.Assert(obj2 != null);
-                    Debug.Assert(obj1 != obj2);
+                    Object obj1 = objArr[i];
+                    Debug.Assert(obj1 != null);
 
-                    (bool f, float d, Vector2 u) =
-                        CollisionDetector.IsCollided(obj1, obj2);
+                    for (int j = i + 1; j < objArrLength; ++j)
+                    {
+                        Object obj2 = objArr[j];
+                        Debug.Assert(obj2 != null);
+                        Debug.Assert(obj1 != obj2);
 
-                    if (f == false) continue;
+                        (bool f, float d, Vector2 u) =
+                            CollisionDetector.IsCollided(obj1, obj2);
 
-                    CollisionResolution.Handle(obj1, obj2, d, u);
+                        if (f == false) continue;
+
+                        CollisionResolution.Handle(obj1, obj2, d, u);
+                    }
                 }
             }*/
 
-            int[] indexArr = new int[objArrLength];
-            float[] distanceArr = new float[objArrLength];
-            Vector2[] vectorArr = new Vector2[objArrLength];
-            bool[] flagArr = new bool[objArrLength];
-            Array.Clear(flagArr, 0, objArrLength);
-
-
-            for (int i = 0; i < objArrLength; ++i)
+            /* --- Method 2 - Start --- */
             {
-                Object obj1 = objArr[i];
-                Debug.Assert(obj1 != null);
+                int objArrLength = objQueueCount;
+                Object[] objArr = [.. _objQueue];
+                Debug.Assert(objArrLength == objArr.Length);
 
-                for (int j = i + 1; j < objArrLength; ++j)
+                int[] indexArr = new int[objArrLength];
+                float[] distanceArr = new float[objArrLength];
+                Vector2[] vectorArr = new Vector2[objArrLength];
+                bool[] flagArr = new bool[objArrLength];
+                Array.Clear(flagArr, 0, objArrLength);
+
+
+                for (int i = 0; i < objArrLength; ++i)
                 {
+                    Object obj1 = objArr[i];
+                    Debug.Assert(obj1 != null);
+
+                    for (int j = i + 1; j < objArrLength; ++j)
+                    {
+                        Object obj2 = objArr[j];
+                        Debug.Assert(obj2 != null);
+                        Debug.Assert(obj1 != obj2);
+
+                        (bool f, float d, Vector2 u) =
+                            CollisionDetector.IsCollided(obj1, obj2);
+
+                        if (f == false) continue;
+
+                        bool fi = flagArr[i], fj = flagArr[j];
+                        float di, dj;
+
+                        if (fi == true && fj == true)
+                        {
+                            di = distanceArr[i];
+                            if (di >= d) continue;
+
+                            dj = distanceArr[j];
+                            if (dj >= d) continue;
+
+                            int iPrime = indexArr[i], jPrime = indexArr[j];
+                            flagArr[iPrime] = false; flagArr[jPrime] = false;
+
+                            Debug.Assert(flagArr[i] == true);
+                            Debug.Assert(flagArr[j] == true);
+                        }
+                        else if (fi == true)
+                        {
+                            Debug.Assert(fj == false);
+
+                            di = distanceArr[i];
+                            if (di >= d) continue;
+
+                            int iPrime = indexArr[i];
+                            flagArr[iPrime] = false;
+
+                            Debug.Assert(flagArr[i] == true);
+                            flagArr[j] = true;
+                        }
+                        else if (fj == true)
+                        {
+                            Debug.Assert(fi == false);
+
+                            dj = distanceArr[j];
+                            if (dj >= d) continue;
+
+                            int jPrime = indexArr[j];
+                            flagArr[jPrime] = false;
+
+                            flagArr[i] = true;
+                            Debug.Assert(flagArr[j] == true);
+                        }
+                        else
+                        {
+                            flagArr[i] = true; flagArr[j] = true;
+                        }
+
+                        indexArr[i] = j; indexArr[j] = i;
+                        distanceArr[i] = distanceArr[j] = d;
+                        vectorArr[i] = u;
+
+                        // It is not needed, because the vector u is already had at i.
+                        // vectorArr[j] = u;
+
+                    }
+                }
+
+                for (uint i = 0; i < objArrLength; ++i)
+                {
+                    if (flagArr[i] == false) continue;
+
+                    Object obj1 = objArr[i];
+                    Debug.Assert(obj1 != null);
+
+                    int j = indexArr[i];
                     Object obj2 = objArr[j];
                     Debug.Assert(obj2 != null);
-                    Debug.Assert(obj1 != obj2);
 
-                    (bool f, float d, Vector2 u) =
-                        CollisionDetector.IsCollided(obj1, obj2);
+                    float d = distanceArr[i];
+                    Vector2 u = vectorArr[i];
+                    Debug.Assert(distanceArr[j] == d);
 
-                    if (f == false) continue;
+                    CollisionResolution.Handle(obj1, obj2, d, u);
 
-                    bool fi = flagArr[i], fj = flagArr[j];
-                    float di, dj;
-
-                    if (fi == true && fj == true)
-                    {
-                        di = distanceArr[i];
-                        if (di >= d) continue;
-
-                        dj = distanceArr[j];
-                        if (dj >= d) continue;
-
-                        int iPrime = indexArr[i], jPrime = indexArr[j];
-                        flagArr[iPrime] = false; flagArr[jPrime] = false;
-
-                        Debug.Assert(flagArr[i] == true);
-                        Debug.Assert(flagArr[j] == true);
-                    }
-                    else if (fi == true)
-                    {
-                        Debug.Assert(fj == false);
-
-                        di = distanceArr[i];
-                        if (di >= d) continue;
-
-                        int iPrime = indexArr[i];
-                        flagArr[iPrime] = false;
-
-                        Debug.Assert(flagArr[i] == true);
-                        flagArr[j] = true;
-                    }
-                    else if (fj == true)
-                    {
-                        Debug.Assert(fi == false);
-
-                        dj = distanceArr[j];
-                        if (dj >= d) continue;
-
-                        int jPrime = indexArr[j];
-                        flagArr[jPrime] = false;
-
-                        flagArr[i] = true;
-                        Debug.Assert(flagArr[j] == true);
-                    }
-                    else
-                    {
-                        flagArr[i] = true; flagArr[j] = true;
-                    }
-
-                    indexArr[i] = j; indexArr[j] = i;
-                    distanceArr[i] = distanceArr[j] = d;
-                    vectorArr[i] = u;
-
-                    // It is not needed, because the vector u is already had at i.
-                    // vectorArr[j] = u;
-
+                    // flagArr[i] = false;  // It is not used forever.
+                    flagArr[j] = false;
                 }
-            }
-
-            for (uint i = 0; i < objArrLength; ++i)
-            {
-                if (flagArr[i] == false) continue;
-
-                Object obj1 = objArr[i];
-                Debug.Assert(obj1 != null);
-
-                int j = indexArr[i];
-                Object obj2 = objArr[j];
-                Debug.Assert(obj2 != null);
-
-                float d = distanceArr[i];
-                Vector2 u = vectorArr[i];
-                Debug.Assert(distanceArr[j] == d);
-
-                CollisionResolution.Handle(obj1, obj2, d, u);
-
-                // flagArr[i] = false;  // It is not used forever.
-                flagArr[j] = false;
             }
 
         }
