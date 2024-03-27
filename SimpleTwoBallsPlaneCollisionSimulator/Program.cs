@@ -473,46 +473,68 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 MovableObject obj, Vector2 n)
         {
             Debug.Assert(0 <= E && E <= 1);
+            // TODO: check n is unit vector
 
-            float dx = n.X; float dy = n.Y;
+            float dx = n.X, dy = n.Y, angle;
 
-            float c, k, cPrime;
             if (dx == 0)  // vertical
             {
-                c = obj.Velocity.Y;
-                k = obj.Velocity.X;
+                if (dy == 0) return;
 
-                cPrime = -E * c;
-                obj.Velocity = new(k, cPrime);
+                if (dy > 0)
+                {
+                    angle = (float)Math.PI / 2.0f;
+                }
+                else
+                {
+                    angle = (float)Math.PI * (3.0f / 2.0f);
+                }
+
             }
             else if (dy == 0)  // horizontal
             {
-                c = obj.Velocity.X;
-                k = obj.Velocity.Y;
+                if (dx == 0) return;
 
-                cPrime = -E * c;
-                obj.Velocity = new(cPrime, k);
+                if (dx > 0)
+                {
+                    angle = 0;
+                }
+                else
+                {
+                    angle = (float)Math.PI;
+                }
             }
             else
             {
-                float angle = (float)Math.Atan(dy / dx);
+                angle = (float)Math.Atan(dy / dx);
+            }
 
+            Debug.Assert(angle >= 0);
+
+            float c, k;
+            if (angle > 0)
+            {
                 c =
                     (obj.Velocity.X * (float)Math.Cos(angle)) +
                     (obj.Velocity.Y * (float)Math.Sin(angle));
                 k =
                     (obj.Velocity.X * -(float)Math.Sin(angle)) +
                     (obj.Velocity.Y * (float)Math.Cos(angle));
-
-                cPrime = -E * c;
-                obj.Velocity = new(
-                    (cPrime * (float)Math.Cos(angle)) +
-                    (k * -(float)Math.Sin(angle)),
-                    (cPrime * (float)Math.Sin(angle)) +
-                    (k * (float)Math.Cos(angle)));
+            }
+            else
+            {
+                c = obj.Velocity.X;
+                k = obj.Velocity.Y;
             }
 
-            /*Console.WriteLine($"obj.Velocity: {obj.Velocity}");*/
+            if (c > 0) return;
+
+            float cPrime = -E * c;
+            obj.Velocity = new(
+                (cPrime * (float)Math.Cos(angle)) +
+                (k * -(float)Math.Sin(angle)),
+                (cPrime * (float)Math.Sin(angle)) +
+                (k * (float)Math.Cos(angle)));
 
         }
 
@@ -832,6 +854,26 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             Object[] objArr = [.. _objQueue];
             Debug.Assert(objArrLength == objArr.Length);
 
+            /*for (int i = 0; i < objArrLength; ++i)
+            {
+                Object obj1 = objArr[i];
+                Debug.Assert(obj1 != null);
+
+                for (int j = i + 1; j < objArrLength; ++j)
+                {
+                    Object obj2 = objArr[j];
+                    Debug.Assert(obj2 != null);
+                    Debug.Assert(obj1 != obj2);
+
+                    (bool f, float d, Vector2 u) =
+                        CollisionDetector.IsCollided(obj1, obj2);
+
+                    if (f == false) continue;
+
+                    CollisionResolution.Handle(obj1, obj2, d, u);
+                }
+            }*/
+
             int[] indexArr = new int[objArrLength];
             float[] distanceArr = new float[objArrLength];
             Vector2[] vectorArr = new Vector2[objArrLength];
@@ -918,7 +960,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 if (flagArr[i] == false) continue;
 
                 Object obj1 = objArr[i];
-                Debug.Assert(obj1 != null); 
+                Debug.Assert(obj1 != null);
 
                 int j = indexArr[i];
                 Object obj2 = objArr[j];
@@ -1203,6 +1245,9 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 new Ball(new(5.0f, 2.5f), new(0.0f, -2.0f), 1.8f, 0.4f),
                 new Ball(new(5.0f, 4.0f), new(3.0f, 1.0f), 0.3f, 0.3f),
                 new Ball(new(2.0f, 4.1f), new(3.0f, 1.0f), 0.3f, 0.3f),
+                new Ball(new(2.0f, 4.3f), new(3.0f, 1.0f), 0.3f, 0.3f),
+                new Ball(new(2.0f, 3.5f), new(3.0f, 1.0f), 0.3f, 0.3f),
+                new Ball(new(2.0f, 8.5f), new(0.0f, -5.0f), 0.3f, 0.3f),
                 new Block(0, 4),
                 new Block(0, 3),
                 new Block(0, 2),
