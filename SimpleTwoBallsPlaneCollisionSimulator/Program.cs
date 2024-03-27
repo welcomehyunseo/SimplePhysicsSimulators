@@ -336,11 +336,12 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             if (dPrime < 0)
                 return (false, 0, Vector2.Zero);
 
+            /*Console.WriteLine($"Block Position: {b2.Position}");
+            Console.WriteLine($"dPrime: {dPrime}");
+            Console.WriteLine($"face: {face}");
+*/
             if (dPrime == 0)
                 return (true, 0, Vector2.Zero);
-
-            /*Console.WriteLine($"b2.Position: {b2.Position}");
-            Console.WriteLine($"i: {i}");*/
 
             return (true, dPrime, GetNormal(face));
         }
@@ -469,28 +470,28 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         }
 
         private static void PostCollisionVelocities2(
-                MovableObject obj, Vector2 nPlain)
+                MovableObject obj, Vector2 n)
         {
             Debug.Assert(0 <= E && E <= 1);
 
-            float dx = nPlain.X; float dy = nPlain.Y;
+            float dx = n.X; float dy = n.Y;
 
-            float c, n, cPrime;
+            float c, k, cPrime;
             if (dx == 0)  // vertical
             {
                 c = obj.Velocity.Y;
-                n = obj.Velocity.X;
+                k = obj.Velocity.X;
 
                 cPrime = -E * c;
-                obj.Velocity = new(n, cPrime);
+                obj.Velocity = new(k, cPrime);
             }
             else if (dy == 0)  // horizontal
             {
                 c = obj.Velocity.X;
-                n = obj.Velocity.Y;
+                k = obj.Velocity.Y;
 
                 cPrime = -E * c;
-                obj.Velocity = new(cPrime, n);
+                obj.Velocity = new(cPrime, k);
             }
             else
             {
@@ -499,17 +500,19 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 c =
                     (obj.Velocity.X * (float)Math.Cos(angle)) +
                     (obj.Velocity.Y * (float)Math.Sin(angle));
-                n =
+                k =
                     (obj.Velocity.X * -(float)Math.Sin(angle)) +
                     (obj.Velocity.Y * (float)Math.Cos(angle));
 
                 cPrime = -E * c;
                 obj.Velocity = new(
                     (cPrime * (float)Math.Cos(angle)) +
-                    (n * -(float)Math.Sin(angle)),
+                    (k * -(float)Math.Sin(angle)),
                     (cPrime * (float)Math.Sin(angle)) +
-                    (n * (float)Math.Cos(angle)));
+                    (k * (float)Math.Cos(angle)));
             }
+
+            /*Console.WriteLine($"obj.Velocity: {obj.Velocity}");*/
 
         }
 
@@ -580,7 +583,9 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         {
             _p = p;
         }
-        
+
+        public abstract void F1(float dt);
+
         public abstract void G1(Window window);
     }
 
@@ -601,7 +606,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         }
 
-        public void F1(float dt) 
+        public override void F1(float dt) 
         {
             Debug.Assert(dt > 0);
 
@@ -622,7 +627,11 @@ namespace SimpleTwoBallsPlainCollisionSimulator
     abstract class ImmovableObject : Object
     {
         public ImmovableObject(Vector2 p) : base(p) { }
-        
+
+        public override void F1(float dt)
+        {
+            Debug.Assert(dt > 0);
+        }
     }
 
     class Ball : MovableObject
@@ -775,75 +784,14 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             return _contactCount == _MaxContactNum;
         }
     }
-    
+
+
     class Game : Window
     {
-        private const int _Scale = 8;
-
-        private Queue<MovableObject> _movableObjQueue = new();
-
-        private Dictionary<(int, int), Block> _blockDict = new();
-
-        private const int _BlockArrLength = _Scale * _Scale;
-        private Block[] _blockArr = new Block[_BlockArrLength];
-
-        private static int _GetIndex(int x, int y)
-        {
-            int x2 = x / _Scale;
-            int y2 = y / _Scale;
-            if (x < 0) x2--;
-            if (y < 0) y2--;
-
-            int x3 = x - (_Scale * x2);
-            int y3 = y - (_Scale * y2);
-            
-            Debug.Assert(x3 >= 0 && x3 < _Scale);
-            Debug.Assert(y3 >= 0 && y3 < _Scale);
-            return (y3 * _Scale) + x3;
-        }
-
-        private static int _GetIndex(float x, float y)
-        {
-            return _GetIndex((int)x, (int)y);
-        }
-
-        private static int _GetIndex(Vector2 position)
-        {
-            return _GetIndex(position.X, position.Y);
-        }
-
-        private void _RemoveBlcokInDict((int, int) key)
-        {
-            throw new NotImplementedException();
-        }
-
-        private void _RemoveBlock((int, int) key)
-        {
-            _RemoveBlcokInDict(key);
-            throw new NotImplementedException();
-        }
-
-        private void _AddBlockInDict(Block block)
-        {
-            (int, int) key = ((int)block.Position.X, (int)block.Position.Y);
-
-            _blockDict.Add(key, block);
-        }
-
-        private void _PlaceBlock(Block block)
-        {
-            _AddBlockInDict(block);
-
-            int i = _GetIndex(block.Position);
-            Debug.Assert(i >= 0 && i < _BlockArrLength);
-
-            Debug.Assert(_blockArr[i] == null);
-            _blockArr[i] = block;
-        }
+        private Queue<Object> _objQueue = new();
 
         public Game(params Object[] objs) : base(800, 800, 0.01f)
         {
-            Debug.Assert(_Scale > 0);
 
             // TODO:
             // Check the objects were overlaped.
@@ -851,18 +799,9 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             // CollisionResolution 과 같이 거리조정하는 기능도 추가하여 사용합니다.
             // ImmovableObject 와 MovableObject 를 대상으로 아무 오브젝트도 겹치지 않는 상태로 만드는 로직 작성
             // 만약 좁은 공간에 많은 오브젝트가 존재한다고 판단될때는 에러!
-            foreach (Object _obj in objs)
+            foreach (Object obj in objs)
             {
-                if (_obj is MovableObject movableObject)
-                {
-                    _movableObjQueue.Enqueue(movableObject);
-                }
-                else if (_obj is Block block)
-                {
-                    _PlaceBlock(block);
-                }
-                else
-                    throw new NotImplementedException();
+                _objQueue.Enqueue(obj);
             }
         }
         
@@ -870,91 +809,51 @@ namespace SimpleTwoBallsPlainCollisionSimulator
         {
             Debug.Assert(dt > 0);
 
-            int movableObjQueueCount = _movableObjQueue.Count();
-            for (int i = 0; i < movableObjQueueCount; ++i)
+            /*Console.WriteLine("Update!");*/
+
+            int objQueueCount = _objQueue.Count();
+            for (int i = 0; i < objQueueCount; ++i)
             {
-                MovableObject obj = _movableObjQueue.Dequeue();
+                Object obj = _objQueue.Dequeue();
 
                 if (obj is Ball ball)
                     DrawCircle(ball.Position, ball.Radius);
+                else if (obj is Block block)
+                    DrawSquare(block.Position, Block.SideLength);
                 else
                     throw new NotImplementedException();
 
                 obj.F1(dt);
 
-                _movableObjQueue.Enqueue(obj);
+                _objQueue.Enqueue(obj);
             }
 
-            for (int i = 0; i < _BlockArrLength; ++i)
+            int objArrLength = objQueueCount;
+            Object[] objArr = [.. _objQueue];
+            Debug.Assert(objArrLength == objArr.Length);
+
+            int[] indexArr = new int[objArrLength];
+            float[] distanceArr = new float[objArrLength];
+            Vector2[] vectorArr = new Vector2[objArrLength];
+            bool[] flagArr = new bool[objArrLength];
+            Array.Clear(flagArr, 0, objArrLength);
+
+
+            for (int i = 0; i < objArrLength; ++i)
             {
-                Block block = _blockArr[i];
-                if (block == null) continue;
-
-                DrawSquare(block.Position, Block.SideLength);
-            }
-
-            MovableObject[] movableObjArr = [.. _movableObjQueue];
-            int objectNumber = movableObjQueueCount + _BlockArrLength;
-
-            /*for (int i = 0; i < movableObjQueueCount; ++i)
-            {
-                MovableObject obj1 = movableObjArr[i];
+                Object obj1 = objArr[i];
                 Debug.Assert(obj1 != null);
 
-                for (int j = i + 1; j < objectNumber; ++j)
+                for (int j = i + 1; j < objArrLength; ++j)
                 {
-                    Object obj2;
-                    int k = j - movableObjQueueCount;
-                    if (k >= 0)
-                    {
-                        obj2 = _blockArr[k];
-                        if (obj2 == null) continue;
-                    }
-                    else
-                    {
-                        obj2 = movableObjArr[j];
-                    }
+                    Object obj2 = objArr[j];
                     Debug.Assert(obj2 != null);
+                    Debug.Assert(obj1 != obj2);
 
-                    (bool collide, float d, Vector2 u) =
+                    (bool f, float d, Vector2 u) =
                         CollisionDetector.IsCollided(obj1, obj2);
 
-                    if (collide == false) continue;
-
-                    CollisionResolution.Handle(obj1, obj2, d, u);
-                }
-            }*/
-
-            int[] indexArr = new int[objectNumber];
-            float[] distanceArr = new float[objectNumber];
-            Vector2[] vectorArr = new Vector2[objectNumber];
-            bool[] flagArr = new bool[objectNumber];
-            Array.Clear(flagArr, 0, objectNumber);
-
-            for (int i = 0; i < movableObjQueueCount; ++i)
-            {
-                MovableObject obj1 = movableObjArr[i];
-                Debug.Assert(obj1 != null);
-
-                for (int j = i + 1; j < objectNumber; ++j)
-                {
-                    Object obj2;
-                    int k = j - movableObjQueueCount;
-                    if (k >= 0)
-                    {
-                        obj2 = _blockArr[k];
-                        if (obj2 == null) continue;
-                    }
-                    else
-                    {
-                        obj2 = movableObjArr[j];
-                    }
-                    Debug.Assert(obj2 != null);
-
-                    (bool collide, float d, Vector2 u) =
-                        CollisionDetector.IsCollided(obj1, obj2);
-
-                    if (collide == false) continue;
+                    if (f == false) continue;
 
                     bool fi = flagArr[i], fj = flagArr[j];
                     float di, dj;
@@ -1012,26 +911,17 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                     // vectorArr[j] = u;
 
                 }
-
             }
 
-            for (uint i = 0; i < movableObjQueueCount; ++i)
+            for (uint i = 0; i < objArrLength; ++i)
             {
                 if (flagArr[i] == false) continue;
 
-                Object obj1 = movableObjArr[i];
-                Object obj2;
+                Object obj1 = objArr[i];
+                Debug.Assert(obj1 != null); 
 
                 int j = indexArr[i];
-                int k = j - movableObjQueueCount;
-                if (k >= 0)
-                {
-                    obj2 = _blockArr[k];
-                }
-                else
-                {
-                    obj2 = movableObjArr[j];
-                }
+                Object obj2 = objArr[j];
                 Debug.Assert(obj2 != null);
 
                 float d = distanceArr[i];
