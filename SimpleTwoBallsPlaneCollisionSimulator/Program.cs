@@ -262,16 +262,17 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             float d2 = b1.Radius + b2.Radius;
             Debug.Assert(d2 > 0);
 
-            // No collide.
-            if (d1 > d2)
-                return (false, 0, Vector2.Zero);
-
             float dPrime = d2 - d1;
-            Debug.Assert(dPrime >= 0);
 
-            // Not overlapped, just touches at one point.
-            if (dPrime == 0)
-                return (true, 0, Vector2.Zero);
+            /*
+             * (dPrime < 0)
+             * Not overlapped.
+             * 
+             * (dPrime == 0)
+             * Not overlapped, just touches at one point.
+             */
+            if (dPrime <= 0)
+                return (false, 0, Vector2.Zero);
 
             // Overlapped.
             Vector2 u = a / d1;
@@ -283,67 +284,145 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             if (b2.IsAllClosed())
                 return (false, 0, Vector2.Zero);
 
-            float d;
-            Block.Face face;
+            // TODO: close 된면은 제외하는 
+            // if the right side is closed, the 7 and 5 are closed together.
 
-            float y1, y2;
+            Vector2 n;
 
-            y1 = (b1.Position.X - b2.Position.X) + b2.Position.Y;
-            y2 = -(b1.Position.X - b2.Position.X) + (b2.Position.Y + Block.SideLength);
-            if (b1.Position.Y >= y1)
+            int f;
+            float x = b1.Position.X, y = b1.Position.Y;
+            float l = b2.Position.X;
+            if (x < l)
             {
-                if (b1.Position.Y >= y2)
-                {
-                    y1 = b1.Position.Y;
-                    y2 = b2.Position.Y + Block.SideLength;
-
-                    face = Face.Top;
-                }
+                l = b2.Position.Y;
+                if (y < l)
+                    f = 1;
                 else
                 {
-                    y1 = b2.Position.X;
-                    y2 = b1.Position.X;
-
-                    face = Face.Left;
+                    l += Block.SideLength;
+                    if (y > l)
+                        f = 3;
+                    else
+                        f = 2;
                 }
             }
             else
             {
-                if (b1.Position.Y >= y2)
+                l = b2.Position.Y;
+                if (y < l)
                 {
-                    y1 = b1.Position.X;
-                    y2 = b2.Position.X + Block.SideLength;
-
-                    face = Face.Right;
+                    l = b2.Position.X + Block.SideLength;
+                    if (x > l)
+                        f = 5;
+                    else
+                        f = 4;
                 }
                 else
                 {
-                    y1 = b2.Position.Y;
-                    y2 = b1.Position.Y;
-                    
-                    face = Face.Bottom;
+                    l += Block.SideLength;
+                    if (y > l)
+                    {
+                        l = b2.Position.X + Block.SideLength;
+                        if (x > l)
+                            f = 7;
+                        else
+                            f = 8;
+                    }
+                    else
+                    {
+                        l = b2.Position.X + Block.SideLength;
+                        if (x > l)
+                            f = 6;
+                        else
+                            throw new NotImplementedException();
+                    }
                 }
             }
-            /*
-             * If assertion failed,
-             * the velocity or size of the objects, or the value dt was wrong.
-             */
-            Debug.Assert(y1 > y2);
-            d = y1 - y2;
+            Debug.Assert(f > 0);
+            Debug.Assert(f <= 8);
+            
+            float d;
+            if (f % 2 == 0)
+            {
+                switch (f)
+                {
+                    case 2:
+                        x = b2.Position.X;
+                        y = b1.Position.X;
+                        n = new(-1, 0);
+                        break;
+                    case 4:
+                        x = b2.Position.Y;
+                        y = b1.Position.Y;
+                        n = new(0, -1);
+                        break;
+                    case 6:
+                        x = b1.Position.X;
+                        y = b2.Position.X + Block.SideLength;
+                        n = new(1, 0);
+                        break;
+                    case 8:
+                        x = b1.Position.Y;
+                        y = b2.Position.Y + Block.SideLength;
+                        n = new(0, 1);
+                        break;
+                    default:
+                        throw new NotImplementedException();
+                }
+
+                d = x - y;
+                Debug.Assert(d > 0);
+            }
+            else
+            {
+                Debug.Assert(f % 2 == 1);
+
+                switch (f)
+                {
+                    case 1:
+                        x = b2.Position.X;
+                        y = b2.Position.Y;
+                        n = Vector2.Normalize(new(-1, -1));
+                        break;
+                    case 3:
+                        x = b2.Position.X;
+                        y = b2.Position.Y + Block.SideLength;
+                        n = Vector2.Normalize(new(-1, 1));
+                        break;
+                    case 5:
+                        x = b2.Position.X + Block.SideLength;
+                        y = b2.Position.Y;
+                        n = Vector2.Normalize(new(1, -1));
+                        break;
+                    case 7:
+                        x = b2.Position.X + Block.SideLength;
+                        y = b2.Position.Y + Block.SideLength;
+                        n = Vector2.Normalize(new(1, 1));
+                        break;
+                    default:
+                        throw new NotImplementedException();
+                }
+
+                d = (float)Math.Sqrt(
+                    (float)Math.Pow(x - b1.Position.X, 2) + 
+                    (float)Math.Pow(y - b1.Position.Y, 2));
+                Debug.Assert(d > 0);
+
+            }
 
             float dPrime = b1.Radius - d;
 
-            if (dPrime < 0)
+            /*
+             * (dPrime < 0)
+             * Not overlapped.
+             * 
+             * (dPrime == 0)
+             * Not overlapped, just touches at one point.
+             */
+            if (dPrime <= 0)
                 return (false, 0, Vector2.Zero);
 
-            /*Console.WriteLine($"Block Position: {b2.Position}");
-            Console.WriteLine($"dPrime: {dPrime}");
-            Console.WriteLine($"face: {face}");
-*/
-            if (dPrime == 0)
-                return (true, 0, Vector2.Zero);
-
-            return (true, dPrime, GetNormal(face));
+            return (true, dPrime, n);
         }
 
         /*
@@ -469,8 +548,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
 
         }
 
-        private static void PostCollisionVelocities2(
-                MovableObject obj, Vector2 n)
+        private static void PostCollisionVelocities2(MovableObject obj, Vector2 n)
         {
             Debug.Assert(0 <= E && E <= 1);
             // TODO: check n is unit vector
@@ -508,8 +586,6 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             {
                 angle = (float)Math.Atan(dy / dx);
             }
-
-            Debug.Assert(angle >= 0);
 
             float c, k;
             if (angle > 0)
@@ -566,6 +642,8 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                 Vector2 e = u * d;
                 b1.Position += e;
             }
+
+            /*Console.WriteLine($"b1.Position: {b1.Position}");*/
 
             PostCollisionVelocities2(b1, u);
 
@@ -851,11 +929,11 @@ namespace SimpleTwoBallsPlainCollisionSimulator
             }
 
             /* --- Method 1 - Start --- */
-            /*{
+            {
                 int objArrLength = objQueueCount;
                 Object[] objArr = [.. _objQueue];
                 Debug.Assert(objArrLength == objArr.Length);
-                
+
                 for (int i = 0; i < objArrLength; ++i)
                 {
                     Object obj1 = objArr[i];
@@ -875,10 +953,10 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                         CollisionResolution.Handle(obj1, obj2, d, u);
                     }
                 }
-            }*/
+            }
 
             /* --- Method 2 - Start --- */
-            {
+            /*{
                 int objArrLength = objQueueCount;
                 Object[] objArr = [.. _objQueue];
                 Debug.Assert(objArrLength == objArr.Length);
@@ -984,7 +1062,7 @@ namespace SimpleTwoBallsPlainCollisionSimulator
                     // flagArr[i] = false;  // It is not used forever.
                     flagArr[j] = false;
                 }
-            }
+            }*/
 
         }
 
