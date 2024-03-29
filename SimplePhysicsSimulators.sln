@@ -15,7 +15,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SFML.System", "SFML.Net-2.5
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SFML.Window", "SFML.Net-2.5.1\src\SFML.Window\SFML.Window.csproj", "{ED0BE453-CA47-4AAE-B289-602F3C6DA765}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimpleTwoBallsPlaneCollisionSimulator", "SimpleTwoBallsPlaneCollisionSimulator\SimpleTwoBallsPlaneCollisionSimulator.csproj", "{16073F29-C513-4C47-8474-BB069857722C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimpleSidePlanePhysicsSimulator", "SimpleTwoBallsPlaneCollisionSimulator\SimpleSidePlanePhysicsSimulator.csproj", "{16073F29-C513-4C47-8474-BB069857722C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{64C0F284-CC9A-4EF0-8528-CCA3F52B5AF1}"
 	ProjectSection(SolutionItems) = preProject
