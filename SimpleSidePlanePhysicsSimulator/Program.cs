@@ -1,14 +1,7 @@
 ﻿
-using SFML.System;
-using System;
 using System.Diagnostics;
 using System.Numerics;
-using System.Reflection.Metadata;
-using System.Collections.Generic;
-using SFML.Graphics;
-using System.Runtime.Intrinsics.X86;
-using System.Collections;
-using SFML.Window;
+using System.Threading;
 
 namespace SimpleSidePlanePhysicsSimulator
 {
@@ -34,8 +27,11 @@ namespace SimpleSidePlanePhysicsSimulator
             _RenderWindow = 
                 new SFML.Graphics.RenderWindow(
                     new SFML.Window.VideoMode(width, height), 
-                    "SimpleTwoBallsLinearCollisionSimulator");
+                    "SimpleSidePlanePhysicsSimulator",
+                    SFML.Window.Styles.Titlebar | SFML.Window.Styles.Close);
 
+            _RenderWindow.KeyPressed += OnKeyPressed;
+            _RenderWindow.KeyReleased += OnKeyReleased;
             _RenderWindow.Closed += OnClosed;
             /*_RenderWindow.SetFramerateLimit(60);*/
 
@@ -197,10 +193,14 @@ namespace SimpleSidePlanePhysicsSimulator
             _run = false;
 
         }
+        
+        protected abstract void OnKeyPressed(object? sender, SFML.Window.KeyEventArgs e);
 
-        private void OnClosed(object? sender, EventArgs e)
+        protected abstract void OnKeyReleased(object? sender, SFML.Window.KeyEventArgs e);
+        
+        private void OnClosed(object? sender, System.EventArgs e)
         {
-            System.Diagnostics.Debug.Assert(sender != null);
+            Debug.Assert(sender != null);
 
             var Window = (SFML.Window.Window)sender;
             Window.Close();
@@ -231,13 +231,13 @@ namespace SimpleSidePlanePhysicsSimulator
             var p = 0.05f;  // fluid density, but it is not exactly.
 
             // characteristic body area, pi * r^2, for sphere.
-            var a = (float)Math.PI * radius * radius;  
+            var a = (float)Math.PI * radius * radius;
             var c = 1.2f;  // drag coefficient for Circle in Two-Dimentional.
 
             return (-0.5f * p * squared * a * c) / (float)Math.Sqrt(squared);
         }
 
-        public AerodynamicDrag(Vector2 vel, float radius) 
+        public AerodynamicDrag(Vector2 vel, float radius)
             : base(DragForceConstant(vel, radius) * vel)
         { }
     }
@@ -283,9 +283,6 @@ namespace SimpleSidePlanePhysicsSimulator
             if (b2.IsAllClosed())
                 return (false, 0, Vector2.Zero);
 
-            // TODO: close 된면은 제외하는 
-            // if the right side is closed, the 7 and 5 are closed together.
-
             Vector2 n;
 
             int f;
@@ -293,45 +290,102 @@ namespace SimpleSidePlanePhysicsSimulator
             float l = b2.Position.X;
             if (x < l)
             {
+                if (b2.IsLeftClosed() == true)
+                    return (false, 0, Vector2.Zero);
+
                 l = b2.Position.Y;
                 if (y < l)
+                {
+                    if (b2.IsLeftDownClosed() == true)
+                        return (false, 0, Vector2.Zero);
+
                     f = 1;
+                }
                 else
                 {
+                    if (b2.IsLeftUpClosed() == true)
+                        return (false, 0, Vector2.Zero);
+
                     l += Block.SideLength;
                     if (y > l)
-                        f = 3;
+                    {
+                        if (b2.IsLeftUpUpClosed() == true)
+                            return (false, 0, Vector2.Zero);
+
+                        f = 3; 
+                    }
                     else
+                    {
+                        Debug.Assert(b2.IsLeftUpClosed() == false);
+
                         f = 2;
+                    }
                 }
             }
             else
             {
+                if (b2.IsRightClosed() == true)
+                    return (false, 0, Vector2.Zero);
+
                 l = b2.Position.Y;
                 if (y < l)
                 {
+                    if (b2.IsRightDownClosed() == true)
+                        return (false, 0, Vector2.Zero);
+
                     l = b2.Position.X + Block.SideLength;
                     if (x > l)
-                        f = 5;
-                    else
-                        f = 4;
-                }
-                else
-                {
-                    l += Block.SideLength;
-                    if (y > l)
                     {
-                        l = b2.Position.X + Block.SideLength;
-                        if (x > l)
-                            f = 7;
-                        else
-                            f = 8;
+                        if (b2.IsRightDownRightClosed() == true)
+                            return (false, 0, Vector2.Zero);
+
+                        f = 5;
                     }
                     else
                     {
+                        Debug.Assert(b2.IsRightDownClosed() == false);
+
+                        f = 4;
+                    }
+                }
+                else
+                {
+                    if (b2.IsRightUpClosed() == true)
+                        return (false, 0, Vector2.Zero);
+
+                    l += Block.SideLength;
+                    if (y > l)
+                    {
+                        if (b2.IsRightUpUpClosed() == true)
+                            return (false, 0, Vector2.Zero);
+
                         l = b2.Position.X + Block.SideLength;
                         if (x > l)
+                        {
+                            if (b2.IsRightUpUpRightClosed() == true)
+                                return (false, 0, Vector2.Zero);
+
+                            f = 7;
+                        }
+                        else
+                        {
+                            Debug.Assert(b2.IsRightUpUpClosed() == false);
+
+                            f = 8;
+                        }
+                    }
+                    else
+                    {
+                        if (b2.IsRightUpDownClosed() == true)
+                            return (false, 0, Vector2.Zero);
+
+                        l = b2.Position.X + Block.SideLength;
+                        if (x > l)
+                        {
+                            Debug.Assert(b2.IsRightUpDownClosed() == false);
+
                             f = 6;
+                        }
                         else
                             throw new NotImplementedException();
                     }
@@ -751,69 +805,30 @@ namespace SimpleSidePlanePhysicsSimulator
 
     class Block : ImmovableObject
     {
-        public enum Face
+        public enum Faces
         {
             Top = 0,
-            Left,
-            Bottom,
-            Right,
-        }
-
-        /*public enum OpenMethod
-        {
-            AllOpened = 0b_0000,
-
-            OnlyTopClosed = 0b_0001,
-            OnlyLeftClosed = 0b_0010,
-            OnlyBottomClosed = 0b_0100,
-            OnlyRightClosed = 0b_1000,
-
-            TopLeftClosed = 0b_0011,
-            LeftBottomClosed = 0b_0110,
-            BottomRightClosed = 0b_1100,
-            RightTopClosed = 0b_1001,
-
-            VerticalOpened = 0b_0101,
-            HorizontalOpened = 0b_1010,
-
-            OnlyTopOpened = 0b_1110,
-            OnlyLeftOpened = 0b_1101,
-            OnlyBottomOpened = 0b_1011,
-            OnlyRightOpened = 0b_0111,
-
-            AllClosed = 0b_1111,
-        }*/
-
-        private static readonly int _MinContactNum = 0;
-        private static readonly int _MaxContactNum = 4;
-
-        private static readonly Vector2[] _Normals = [ 
-            Vector2.Normalize(new(0.0f, 1.0f)),
-            Vector2.Normalize(new(-1.0f, 0.0f)),
-            Vector2.Normalize(new(0.0f, -1.0f)),
-            Vector2.Normalize(new(1.0f, 0.0f)),
-            ];
-        public static Vector2 GetNormal(Face face)
-        {
-            int i = (int)face;
-            return _Normals[i];
+            Left = 1,
+            Bottom = 2,
+            Right = 3,
         }
 
         public static readonly float SideLength = 1.0f;  // m
         public static readonly float Radius = SideLength / 2;
 
+        private static readonly int _MinContactNum = 0;
+        private static readonly int _MaxContactNum = 4;
         private int _contactCount = _MinContactNum;
-        /*public int ContactCount { get { return _contactCount; } }*/
 
-        /*private readonly uint[] _Bitmasks = [
+        private static readonly uint[] _FacesBitmask = [
             0b_0001, 0b_0010, 0b_0100, 0b_1000,
             ];
-        private uint _bitmask = 0b_0000;*/
-
-        // TODO: Get position parameter as integers.
+        private uint _bitmask = 0b_0000;
+        
         public Block(int x, int y) : base(new(x, y)) 
         {
-            Debug.Assert(_Normals.Length == _MaxContactNum);
+            Debug.Assert(_MaxContactNum == Enum.GetNames(typeof(Faces)).Length);
+            Debug.Assert(_MaxContactNum == _FacesBitmask.Length);
         }
 
         public (int, int) GetLocation()
@@ -831,41 +846,152 @@ namespace SimpleSidePlanePhysicsSimulator
             window.DrawSquare(_p, SideLength);
         }
 
-        /*private uint _GetBitmask(Face face)
+        private uint _GetBitmask(Faces face)
         {
             int i = (int)face;
-            return _Bitmasks[i];
-        }*/
+            return _FacesBitmask[i];
+        }
 
-        public void Contact()
+        public void Contact(Faces face)
         {
-            /*Debug.Assert((_bitmask & _GetBitmask(face)) == 0);
-            _bitmask |= _GetBitmask(face);*/
+            Debug.Assert((_bitmask & _GetBitmask(face)) == 0);
+            _bitmask |= _GetBitmask(face);
 
             Debug.Assert(_contactCount >= _MinContactNum);
             Debug.Assert(_contactCount <= _MaxContactNum);
             _contactCount++;
         }
 
-        public void Uncontact()
+        public void Uncontact(Faces face)
         {
-            /*Debug.Assert((_bitmask & _GetBitmask(face)) != 0);
-            _bitmask ^= _GetBitmask(face);*/
+            Debug.Assert((_bitmask & _GetBitmask(face)) != 0);
+            _bitmask ^= _GetBitmask(face);
 
             Debug.Assert(_contactCount >= _MinContactNum);
             Debug.Assert(_contactCount <= _MaxContactNum);
             _contactCount--;
         }
 
-        /*public OpenMethod WhichOpened()
+        public bool IsLeftClosed()
         {
-            return (OpenMethod)_bitmask;
-        }*/
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x = 
+                _GetBitmask(Faces.Top) | 
+                _GetBitmask(Faces.Left) | 
+                _GetBitmask(Faces.Bottom);
+            return (_bitmask & x) == x;
+        }
+
+        public bool IsLeftDownClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x = 
+                _GetBitmask(Faces.Left) |
+                _GetBitmask(Faces.Bottom);
+            return (_bitmask & x) != 0;
+        }
+
+        public bool IsLeftUpClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x = _GetBitmask(Faces.Left);
+            return (_bitmask & x) != 0;
+        }
+
+        public bool IsLeftUpUpClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x =
+                _GetBitmask(Faces.Top) |
+                _GetBitmask(Faces.Left);
+            return (_bitmask & x) != 0;
+        }
+
+        public bool IsRightClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x =
+                _GetBitmask(Faces.Top) |
+                _GetBitmask(Faces.Bottom) |
+                _GetBitmask(Faces.Right);
+            return (_bitmask & x) == x;
+        }
+
+        public bool IsRightDownClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x = _GetBitmask(Faces.Bottom);
+            return (_bitmask & x) != 0;
+        }
+        
+        public bool IsRightDownRightClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x =
+                _GetBitmask(Faces.Bottom) |
+                _GetBitmask(Faces.Right);
+            return (_bitmask & x) != 0;
+        }
+        
+        public bool IsRightUpClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x =
+                _GetBitmask(Faces.Right) |
+                _GetBitmask(Faces.Top);
+            return (_bitmask & x) == x;
+        }
+        
+        public bool IsRightUpUpClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x = _GetBitmask(Faces.Top);
+            return (_bitmask & x) != 0;
+        }
+        
+        public bool IsRightUpUpRightClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x =
+                _GetBitmask(Faces.Right) |
+                _GetBitmask(Faces.Top);
+            return (_bitmask & x) != 0;
+        }
+        
+        public bool IsRightUpDownClosed()
+        {
+            Debug.Assert(_contactCount >= _MinContactNum);
+            Debug.Assert(_contactCount <= _MaxContactNum);
+
+            uint x = _GetBitmask(Faces.Right);
+            return (_bitmask & x) != 0;
+        }
 
         public bool IsAllClosed()
         {
             Debug.Assert(_contactCount >= _MinContactNum);
             Debug.Assert(_contactCount <= _MaxContactNum);
+
             return _contactCount == _MaxContactNum;
         }
     }
@@ -873,8 +999,12 @@ namespace SimpleSidePlanePhysicsSimulator
 
     class Game : Window
     {
+        int a = 0;
+
         private Queue<MovableObject> _mvObjQueue = new();
         private Queue<ImmovableObject> _imvObjQueue = new();
+
+        private Dictionary<(int, int), Block> _blockDict = new();
 
         public Game(params Object[] objs) : base(800, 800, 0.01f)
         {
@@ -894,6 +1024,41 @@ namespace SimpleSidePlanePhysicsSimulator
                 else if (obj is ImmovableObject imvObj)
                 {
                     _imvObjQueue.Enqueue(imvObj);
+
+                    if (imvObj is Block block)
+                    {
+                        (int, int) key = ((int)block.Position.X, (int)block.Position.Y);
+                        if (_blockDict.ContainsKey(key) == true)
+                            throw new NotImplementedException();
+
+                        _blockDict[key] = block;
+
+                        Block.Faces[] faces = [
+                                Block.Faces.Top,
+                                Block.Faces.Left,
+                                Block.Faces.Bottom,
+                                Block.Faces.Right,
+                            ];
+                        (int, int)[] keys = [
+                                (key.Item1, key.Item2 + 1),
+                                (key.Item1 - 1, key.Item2),
+                                (key.Item1, key.Item2 - 1),
+                                (key.Item1 + 1, key.Item2),
+                            ];
+                        int keysLength = keys.Length;
+                        Debug.Assert(keysLength == 4);
+
+                        for (int i = 0; i < keysLength; ++i)
+                        {
+                            key = keys[i];
+                            if (_blockDict.ContainsKey(key))
+                            {
+                                block = _blockDict[key];
+                                Debug.Assert(block != null);
+                                block.Contact(faces[i]);
+                            }
+                        }
+                    }
                 }
                 else
                     throw new NotImplementedException();
@@ -1058,6 +1223,28 @@ namespace SimpleSidePlanePhysicsSimulator
                 flagArr[j] = false;
             }
 
+        }
+
+        protected override void OnKeyPressed(object? sender, SFML.Window.KeyEventArgs e)
+        {
+            Debug.Assert(sender != null);
+
+            Console.WriteLine(e);
+            if (e.Code == SFML.Window.Keyboard.Key.Left)
+            {
+                a = -1;
+            }
+            else if (e.Code == SFML.Window.Keyboard.Key.Right)
+            {
+                a = 1;
+            }
+        }
+
+        protected override void OnKeyReleased(object? sender, SFML.Window.KeyEventArgs e)
+        {
+            Debug.Assert(sender != null);
+
+            a = 0;
         }
 
     }
@@ -1283,6 +1470,11 @@ namespace SimpleSidePlanePhysicsSimulator
             Console.WriteLine($"\tv2': {v2Prime}");
         }
 
+        public static void DoWork() 
+        {
+
+        }
+
         public static void Main()
         {
             Console.WriteLine("Hello, World!");
@@ -1319,6 +1511,9 @@ namespace SimpleSidePlanePhysicsSimulator
                 0.9f,
                 new(-3.0f, -1.0f), new(1.0f, 2.0f), 15.0f, 4,
                 new(4.0f, -1.0f), new(-1.0f, -3.0f), 10.0f, 3);*/
+
+            Thread newThread = new Thread(new ThreadStart(DoWork));
+            newThread.Start();
 
             var game = new Game(
                 new Ball(new(3.5f, 4.0f), new(1.0f, 0.0f), 1.0f, 0.2f),

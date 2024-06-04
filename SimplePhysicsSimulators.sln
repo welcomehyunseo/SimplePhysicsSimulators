@@ -15,12 +15,12 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SFML.System", "SFML.Net-2.5
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SFML.Window", "SFML.Net-2.5.1\src\SFML.Window\SFML.Window.csproj", "{ED0BE453-CA47-4AAE-B289-602F3C6DA765}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimpleSidePlanePhysicsSimulator", "SimpleTwoBallsPlaneCollisionSimulator\SimpleSidePlanePhysicsSimulator.csproj", "{16073F29-C513-4C47-8474-BB069857722C}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{64C0F284-CC9A-4EF0-8528-CCA3F52B5AF1}"
 	ProjectSection(SolutionItems) = preProject
 		.gitignore = .gitignore
 	EndProjectSection
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimpleSidePlanePhysicsSimulator", "SimpleSidePlanePhysicsSimulator\SimpleSidePlanePhysicsSimulator.csproj", "{E2FC72B7-11F8-4AA1-87D6-F407AA62F605}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -52,10 +52,10 @@ Global
 		{ED0BE453-CA47-4AAE-B289-602F3C6DA765}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{ED0BE453-CA47-4AAE-B289-602F3C6DA765}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{ED0BE453-CA47-4AAE-B289-602F3C6DA765}.Release|Any CPU.Build.0 = Release|Any CPU
-		{16073F29-C513-4C47-8474-BB069857722C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{16073F29-C513-4C47-8474-BB069857722C}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{16073F29-C513-4C47-8474-BB069857722C}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{16073F29-C513-4C47-8474-BB069857722C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E2FC72B7-11F8-4AA1-87D6-F407AA62F605}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E2FC72B7-11F8-4AA1-87D6-F407AA62F605}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E2FC72B7-11F8-4AA1-87D6-F407AA62F605}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E2FC72B7-11F8-4AA1-87D6-F407AA62F605}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
